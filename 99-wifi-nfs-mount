@@ -6,7 +6,7 @@ readonly DEVICE="${1:-}"
 readonly STATE="${2:-}"
 readonly SCRIPT_NAME="wifi-nfs-hook"
 readonly MAIN_SCRIPT="/usr/local/bin/nfs-mount.sh"
-readonly WIFI_NAME="MaisonDuRuet"
+readonly WIFI_NAME="XXXXXXXXXXXXX"
 readonly WIFI_IFACE="wlp2s0"
 
 log_info() {

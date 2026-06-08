@@ -7,7 +7,7 @@ readonly STATE="${2:-}"
 readonly SCRIPT_NAME="eth-nfs-hook"
 readonly MAIN_SCRIPT="/usr/local/bin/nfs-mount.sh"
 readonly NFS_SERVER_IP="192.168.50.51"
-readonly NFS_SERVER_MAC="00:1e:06:30:7e:98"
+readonly NFS_SERVER_MAC="XXXXXXXXXXXXXXX"
 readonly LAN_IFACE="enp1s0f1"
 
 log_info() {
