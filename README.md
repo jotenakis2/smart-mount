@@ -14,8 +14,10 @@ Idem plus tard pour SMB
 
 ## INSTALLATION 
 
+
+
 ```
-sudo make install 
+git clone https://github.com/jotenakis2/smart-mount && cd smart-mount && sudo make install 
 ```
 
 éditer le fichier /etc/smart-mount/config
