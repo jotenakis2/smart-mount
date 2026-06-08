@@ -30,6 +30,6 @@ sudo nano /etc/smart-mount/config
 ## SUPPRESSION
 
 ```
-sudo make uninstall 
+cd smart-mount && sudo make uninstall 
 ```
 
