@@ -8,9 +8,8 @@ NFS :
 
 - montage automatique au démarrage si connecté en ethernet et que l'adresse MAC du serveur est la bonne,
 
-- utilise 1 script et 2 hooks NetworkManager + un timer systemd (pour vérifier la connection et remonter si besoin).
+- utilise 1 script bash de montage, 2 hooks NetworkManager (pour gérer les évènements de connection LAN/WIFI) et un timer systemd (pour vérifier la connection et remonter si besoin).
 
-Idem plus tard pour SMB
 
 ## INSTALLATION 
 
@@ -33,3 +32,6 @@ sudo nano /etc/smart-mount/config
 cd smart-mount && sudo make uninstall 
 ```
 
+## TODO
+
+SMB
