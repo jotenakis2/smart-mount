@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly DEVICE="${1:-}"
+readonly STATE="${2:-}"
+readonly SCRIPT_NAME="eth-nfs-hook"
+readonly MAIN_SCRIPT="/usr/local/bin/nfs-mount.sh"
+readonly NFS_SERVER_IP="192.168.50.51"
+readonly NFS_SERVER_MAC="00:1e:06:30:7e:98"
+readonly LAN_IFACE="enp1s0f1"
+
+log_info() {
+    logger -t "${SCRIPT_NAME}" -p user.info -- "$*"
+}
+
+log_notice() {
+    logger -t "${SCRIPT_NAME}" -p user.notice -- "$*"
+}
+
+log_err() {
+    logger -t "${SCRIPT_NAME}" -p user.err -- "$*"
+}
+
+trap_err() {
+    local exit_code="${1}"
+    local line_number="${2}"
+    log_err "Erreur ligne ${line_number}, code ${exit_code}"
+}
+
+trap 'trap_err "$?" "${LINENO}"' ERR
+
+get_neighbor_mac() {
+    local ip_addr="${1}"
+    ip neigh show "${ip_addr}" | awk '/lladdr/ { print $5; exit }'
+}
+
+refresh_neighbor() {
+    local ip_addr="${1}"
+    ping -c 1 -W 1 -- "${ip_addr}" >/dev/null 2>&1 || true
+}
+
+is_target_nas_present() {
+    local detected_mac=""
+
+    detected_mac="$(get_neighbor_mac "${NFS_SERVER_IP}" || true)"
+
+    if [[ -z "${detected_mac}" ]]; then
+        refresh_neighbor "${NFS_SERVER_IP}"
+        detected_mac="$(get_neighbor_mac "${NFS_SERVER_IP}" || true)"
+    fi
+
+    if [[ -z "${detected_mac}" ]]; then
+        log_notice "NAS non detecte a l'adresse ${NFS_SERVER_IP}"
+        return 1
+    fi
+
+    if [[ "${detected_mac,,}" != "${NFS_SERVER_MAC,,}" ]]; then
+        log_notice "MAC detecte ${detected_mac}, attendu ${NFS_SERVER_MAC}"
+        return 1
+    fi
+
+    log_notice "NAS domestique confirme: ${NFS_SERVER_IP} (${detected_mac})"
+    return 0
+}
+
+main() {
+	if [[ "${DEVICE}" = "${LAN_IFACE}" ]]; then
+	    log_info "Event: device=${DEVICE}, state=${STATE}"
+
+	    case "${STATE}" in
+	        up|dhcp4-change|dhcp6-change|connectivity-change|vpn-up)
+	            if is_target_nas_present; then
+	                log_notice "Ethernet domestique detecte, montage NFS"
+	                "${MAIN_SCRIPT}" mount
+	            else
+	                log_notice "Ethernet non domestique, demontage NFS"
+	                "${MAIN_SCRIPT}" unmount
+	            fi
+	            ;;
+	        down|vpn-down)
+	            log_notice "Lien Ethernet coupe, demontage NFS"
+	            "${MAIN_SCRIPT}" unmount
+	            ;;
+	        *)
+	            log_info "Etat ignore: ${STATE}"
+	            ;;
+	    esac
+	fi
+}
+
+main

@@ -1,0 +1,8 @@
+[Unit]
+Description=Vérification périodique du montage NFS selon le réseau
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/nfs-mount.sh mount

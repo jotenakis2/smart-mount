@@ -1,0 +1,12 @@
+[Unit]
+Description=Vérification périodique du montage NFS
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+AccuracySec=1m
+Persistent=true
+Unit=nfs-network-check.service
+
+[Install]
+WantedBy=timers.target

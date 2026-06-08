@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly DEVICE="${1:-}"
+readonly STATE="${2:-}"
+readonly SCRIPT_NAME="wifi-nfs-hook"
+readonly MAIN_SCRIPT="/usr/local/bin/nfs-mount.sh"
+readonly WIFI_NAME="MaisonDuRuet"
+readonly WIFI_IFACE="wlp2s0"
+
+log_info() {
+    logger -t "${SCRIPT_NAME}" -p user.info -- "$*"
+}
+
+log_notice() {
+    logger -t "${SCRIPT_NAME}" -p user.notice -- "$*"
+}
+
+log_err() {
+    logger -t "${SCRIPT_NAME}" -p user.err -- "$*"
+}
+
+trap_err() {
+    local exit_code="${1}"
+    local line_number="${2}"
+    log_err "Erreur ligne ${line_number}, code ${exit_code}"
+}
+
+trap 'trap_err "$?" "${LINENO}"' ERR
+
+get_current_wifi() {
+    if command -v nmcli >/dev/null 2>&1; then
+        nmcli -t -f ACTIVE,SSID dev wifi | awk -F: '$1 == "yes" { print $2; exit }'
+        return 0
+    fi
+
+    if command -v iwgetid >/dev/null 2>&1; then
+        iwgetid -r
+        return 0
+    fi
+
+    return 1
+}
+
+main() {
+    local current_wifi=""
+	if [[ "${DEVICE}" = "${WIFI_IFACE}" ]]; then
+	    log_info "Event: device=${DEVICE}, state=${STATE}"
+
+	    case "${STATE}" in
+	        up|dhcp4-change|dhcp6-change|connectivity-change|vpn-up)
+	            current_wifi="$(get_current_wifi || true)"
+
+	            if [[ "${current_wifi}" == "${WIFI_NAME}" ]]; then
+	                log_notice "WiFi ${WIFI_NAME} detecte, montage NFS"
+	                "${MAIN_SCRIPT}" mount
+	            else
+	                log_notice "WiFi non cible (${current_wifi}), demontage NFS"
+	                "${MAIN_SCRIPT}" unmount
+	            fi
+	            ;;
+	        down|vpn-down)
+	            log_notice "Lien WiFi coupe, demontage NFS"
+	            "${MAIN_SCRIPT}" unmount
+	            ;;
+	        *)
+	            log_info "Etat ignore: ${STATE}"
+	            ;;
+	    esac
+	fi
+}
+
+main
