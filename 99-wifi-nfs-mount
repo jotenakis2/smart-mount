@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
+readonly CONFIG="/etc/smart-mount/config"
+if [[ -f "${CONFIG}" ]]; then
+	source "${CONFIG}" 
+else
+	echo "config manquante"
+	exit 1
+fi
 
 readonly DEVICE="${1:-}"
 readonly STATE="${2:-}"
 readonly SCRIPT_NAME="wifi-nfs-hook"
 readonly MAIN_SCRIPT="/usr/local/bin/nfs-mount.sh"
-readonly WIFI_NAME="XXXXXXXXXXXXX"
-readonly WIFI_IFACE="wlp2s0"
 
 log_info() {
     logger -t "${SCRIPT_NAME}" -p user.info -- "$*"

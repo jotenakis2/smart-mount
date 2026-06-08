@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
+readonly CONFIG="/etc/smart-mount/config"
+if [[ -f "${CONFIG}" ]]; then
+	source "${CONFIG}" 
+else
+	echo "config manquante"
+	exit 1
+fi
 
-readonly NFS_SERVER="192.168.50.51"
-readonly NFS_PATH="/mnt/usbdrive/data"
-readonly MOUNT_POINT="/media/NAS"
 readonly SCRIPT_NAME="nfs-mount"
-readonly NFS_OPTS="nodev,nosuid,noexec,noatime,lazytime"
 
 log_info() {
     logger -t "${SCRIPT_NAME}" -p user.info -- "$*"
@@ -33,7 +36,7 @@ trap_err() {
 trap 'trap_err "$?" "${LINENO}"' ERR
 
 mount_nfs() {
-    local nfs_spec="${NFS_SERVER}:${NFS_PATH}"
+    local nfs_spec="${NFS_SERVER_IP}:${NFS_SHAREDPATH}"
 
     if [[ ! -d "${MOUNT_POINT}" ]]; then
         mkdir -p -- "${MOUNT_POINT}"
