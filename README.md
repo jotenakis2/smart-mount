@@ -5,3 +5,4 @@ NFS :
 - utilise 1 script et 2 hooks NetworkManager + un timer systemd (pour vérifier la connection et remonter si besoin).
 
 Idem plus tard pour SMB
+
