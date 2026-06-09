@@ -10,19 +10,13 @@ NFS :
 
 - utilise 1 script bash de montage, 2 hooks NetworkManager (pour gérer les évènements de connection LAN/WIFI) et un timer systemd (pour vérifier la connection et remonter si besoin).
 
+- à l'installation les paramètres utilisateurs seront demandés pour générer un fichier de configuration.
+
 
 ## INSTALLATION 
 
-
-
 ```
 git clone https://github.com/jotenakis2/smart-mount && cd smart-mount && sudo make install 
-```
-
-éditer le fichier /etc/smart-mount/config
-
-```
-sudo nano /etc/smart-mount/config
 ```
 
 
