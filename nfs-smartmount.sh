@@ -2,7 +2,6 @@
 set -euo pipefail
 
 VER=0.6
-echo "smartmount v${VER}" >/tmp/smartmount
 readonly CONFIG="/etc/smart-mount/config"
 if [[ -f "${CONFIG}" ]]; then
 	source "${CONFIG}" 
@@ -79,6 +78,7 @@ main() {
             ;;
         *)
             log_warning "Usage invalide: ${0} {mount|unmount}"
+			echo "smartmount v${VER}"
             printf 'Usage: %s {mount|unmount}\n' "${0}" >&2
             exit 2
             ;;
