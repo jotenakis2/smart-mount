@@ -47,17 +47,17 @@ main() {
     whiptail --title "smart-mount setup" --msgbox "Configuration de smart-mount.\n\nLes valeurs par défaut sont récupérées depuis /etc/fstab et la connexion Wi-Fi active quand c'est possible." 12 78
 
     NFS_SERVER_IP="$(ask_input "NFS" "Adresse IP du serveur NFS" "${DEFAULT_NFS_SERVER_IP}")"
-    NFS_SHAREDPATH="$(ask_input "NFS" "Chemin exporté par le serveur NFS" "${DEFAULT_NFS_SHAREDPATH}")"
-    MOUNT_POINT="$(ask_input "NFS" "Point de montage local" "${DEFAULT_MOUNT_POINT}")"
+    NFS_SHAREDPATH="$(ask_input "NFS" "Dossier partagé par le serveur NFS" "${DEFAULT_NFS_SHAREDPATH}")"
+    MOUNT_POINT="$(ask_input "NFS" "Point de montage" "${DEFAULT_MOUNT_POINT}")"
     NFS_OPTS="$(ask_input "NFS" "Options de montage NFS" "${DEFAULT_NFS_OPTS}")"
 
-    WIFI_NAME="$(ask_input "WIFI" "Nom du réseau Wi-Fi (SSID)" "${DEFAULT_WIFI_NAME}")"
-    WIFI_IFACE="$(ask_input "WIFI" "Interface Wi-Fi" "${DEFAULT_WIFI_IFACE}")"
+    WIFI_NAME="$(ask_input "WIFI" "Nom du réseau Wi-Fi surlequel le serveur NFS est joignable (SSID)" "${DEFAULT_WIFI_NAME}")"
+    WIFI_IFACE="$(ask_input "WIFI" "Interface réseau Wi-Fi" "${DEFAULT_WIFI_IFACE}")"
 
 	# shellcheck disable=SC2310
 	DEFAULT_NFS_SERVER_MAC="$(get_nfs_server_mac "${NFS_SERVER_IP}" || true)"
     NFS_SERVER_MAC="$(ask_input "LAN" "Adresse MAC du serveur NFS" "${DEFAULT_NFS_SERVER_MAC}")"
-    LAN_IFACE="$(ask_input "LAN" "Interface LAN" "${DEFAULT_LAN_IFACE}")"
+    LAN_IFACE="$(ask_input "LAN" "Interface réseau Ethernet/LAN" "${DEFAULT_LAN_IFACE}")"
 
     mkdir -p "${CONFIG_DIR}"
 	local backup="no"
@@ -182,10 +182,10 @@ get_nfs_server_mac() {
     local mac
 
     # Essayer de remplir le cache ARP
-    ping -c 1 -W 1 "${ip}" >/dev/null 2>&1 || return 1
+    ping -c 2 -i 0.2 -W 1 "${ip}" >/dev/null 2>&1 || return 1
 
     # Récupérer la MAC via ARP
-    mac="$(ip -o neigh show "${ip}" | awk '$6 == "REACHABLE" || $6 == "STALE" {print $5}')" || return 1
+    mac="$(ip neigh show "${ip}" | awk '/lladdr/ { print $5; exit }')" || return 1
 
     [[ -n "${mac}" ]] && printf '%s\n' "${mac}" || return 1
 }
