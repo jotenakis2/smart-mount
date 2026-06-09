@@ -2,14 +2,12 @@ PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 NM_DISPATCHER_DIR ?= /etc/NetworkManager/dispatcher.d
 SYSTEMD_SYSTEM_DIR ?= /etc/systemd/system
-CONF_DIR ?= /etc/smart-mount
 INSTALL ?= install
 CHOWN ?= chown
 RM ?= rm -f
 
 DISPATCHER_SCRIPTS := 98-eth-nfs-mac 99-wifi-nfs-mount
-CONFIG := config
-BIN_SCRIPT := nfs-mount.sh
+BIN_SCRIPT := nfs-smartmount.sh
 SYSTEMD_UNITS := nfs-network-check.service nfs-network-check.timer
 
 .PHONY: all install uninstall check verify
@@ -20,8 +18,7 @@ all:
 check:
 	test -f 98-eth-nfs-mac
 	test -f 99-wifi-nfs-mount
-	test -f nfs-mount.sh
-	test -f config
+	test -f nfs-smartmount.sh
 	test -f nfs-network-check.service
 	test -f nfs-network-check.timer
 
@@ -29,15 +26,10 @@ install: check
 	$(INSTALL) -d -m 0755 "$(DESTDIR)$(NM_DISPATCHER_DIR)"
 	$(INSTALL) -d -m 0755 "$(DESTDIR)$(BINDIR)"
 	$(INSTALL) -d -m 0755 "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)"
-	$(INSTALL) -d -m 0755 "$(DESTDIR)$(CONF_DIR)"
 
 	$(INSTALL) -m 0700 $(DISPATCHER_SCRIPTS) "$(DESTDIR)$(NM_DISPATCHER_DIR)/"
 	$(CHOWN) root:root "$(DESTDIR)$(NM_DISPATCHER_DIR)/98-eth-nfs-mac"
 	$(CHOWN) root:root "$(DESTDIR)$(NM_DISPATCHER_DIR)/99-wifi-nfs-mount"
-
-	$(INSTALL) -m 0600 $(CONFIG) "$(DESTDIR)$(CONF_DIR)/"
-	$(CHOWN) root:root "$(DESTDIR)$(CONF_DIR)/config"
-
 
 	$(INSTALL) -m 0755 $(BIN_SCRIPT) "$(DESTDIR)$(BINDIR)/$(BIN_SCRIPT)"
 	$(CHOWN) root:root "$(DESTDIR)$(BINDIR)/$(BIN_SCRIPT)"

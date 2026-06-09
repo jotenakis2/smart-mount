@@ -9,7 +9,7 @@ else
 	exit 1
 fi
 
-readonly SCRIPT_NAME="nfs-mount"
+readonly SCRIPT_NAME="nfs-smartmount"
 
 log_info() {
     logger -t "${SCRIPT_NAME}" -p user.info -- "$*"

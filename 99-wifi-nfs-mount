@@ -11,8 +11,8 @@ fi
 
 readonly DEVICE="${1:-}"
 readonly STATE="${2:-}"
-readonly SCRIPT_NAME="wifi-nfs-hook"
-readonly MAIN_SCRIPT="/usr/local/bin/nfs-mount.sh"
+readonly SCRIPT_NAME="smartmount-wifi-nfs-NM_hook"
+readonly MAIN_SCRIPT="/usr/local/bin/nfs-smartmount.sh"
 
 log_info() {
     logger -t "${SCRIPT_NAME}" -p user.info -- "$*"

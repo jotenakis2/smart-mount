@@ -1,5 +1,5 @@
 [Unit]
-Description=Vérification périodique du montage NFS
+Description=Vérification périodique du montage NFS - smartmount
 
 [Timer]
 OnBootSec=5min
