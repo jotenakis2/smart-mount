@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VER=0.6
+VER=0.7
 readonly CONFIG="/etc/smart-mount/config"
 if [[ -f "${CONFIG}" ]]; then
+	# shellcheck source=/etc/smart-mount/config
 	source "${CONFIG}" 
 else
 	echo "config manquante"
@@ -36,6 +37,7 @@ trap_err() {
 
 trap 'trap_err "$?" "${LINENO}"' ERR
 
+# shellcheck disable=SC2154
 mount_nfs() {
     local nfs_spec="${NFS_SERVER_IP}:${NFS_SHAREDPATH}"
 

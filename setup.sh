@@ -54,6 +54,7 @@ main() {
     WIFI_NAME="$(ask_input "WIFI" "Nom du réseau Wi-Fi (SSID)" "${DEFAULT_WIFI_NAME}")"
     WIFI_IFACE="$(ask_input "WIFI" "Interface Wi-Fi" "${DEFAULT_WIFI_IFACE}")"
 
+	# shellcheck disable=SC2310
 	DEFAULT_NFS_SERVER_MAC="$(get_nfs_server_mac "${NFS_SERVER_IP}" || true)"
     NFS_SERVER_MAC="$(ask_input "LAN" "Adresse MAC du serveur NFS" "${DEFAULT_NFS_SERVER_MAC}")"
     LAN_IFACE="$(ask_input "LAN" "Interface LAN" "${DEFAULT_LAN_IFACE}")"

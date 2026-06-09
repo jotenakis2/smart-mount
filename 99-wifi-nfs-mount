@@ -3,6 +3,7 @@
 set -euo pipefail
 readonly CONFIG="/etc/smart-mount/config"
 if [[ -f "${CONFIG}" ]]; then
+	# shellcheck source=/etc/smart-mount/config
 	source "${CONFIG}" 
 else
 	echo "config manquante"
@@ -50,11 +51,13 @@ get_current_wifi() {
 
 main() {
     local current_wifi=""
+    # shellcheck disable=SC2154
 	if [[ "${DEVICE}" = "${WIFI_IFACE}" ]]; then
 	    log_info "Event: device=${DEVICE}, state=${STATE}"
 
 	    case "${STATE}" in
 	        up|dhcp4-change|dhcp6-change|connectivity-change|vpn-up)
+  		        # shellcheck disable=SC2310
 	            current_wifi="$(get_current_wifi || true)"
 
 	            if [[ "${current_wifi}" == "${WIFI_NAME}" ]]; then

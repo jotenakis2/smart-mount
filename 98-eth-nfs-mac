@@ -4,6 +4,7 @@ set -euo pipefail
 
 readonly CONFIG="/etc/smart-mount/config"
 if [[ -f "${CONFIG}" ]]; then
+	# shellcheck source=/etc/smart-mount/config
 	source "${CONFIG}" 
 else
 	echo "config manquante"
@@ -48,10 +49,12 @@ refresh_neighbor() {
 is_target_nas_present() {
     local detected_mac=""
 
+	# shellcheck disable=SC2310,SC2154
     detected_mac="$(get_neighbor_mac "${NFS_SERVER_IP}" || true)"
 
     if [[ -z "${detected_mac}" ]]; then
         refresh_neighbor "${NFS_SERVER_IP}"
+        # shellcheck disable=SC2310
         detected_mac="$(get_neighbor_mac "${NFS_SERVER_IP}" || true)"
     fi
 
@@ -59,7 +62,7 @@ is_target_nas_present() {
         log_notice "NAS non detecte a l'adresse ${NFS_SERVER_IP}"
         return 1
     fi
-
+	# shellcheck disable=SC2154
     if [[ "${detected_mac,,}" != "${NFS_SERVER_MAC,,}" ]]; then
         log_notice "MAC detecte ${detected_mac}, attendu ${NFS_SERVER_MAC}"
         return 1
@@ -70,6 +73,7 @@ is_target_nas_present() {
 }
 
 main() {
+	# shellcheck disable=SC2310,SC2154
 	if [[ "${DEVICE}" = "${LAN_IFACE}" ]]; then
 	    log_info "Event: device=${DEVICE}, state=${STATE}"
 
