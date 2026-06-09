@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-
 set -euo pipefail
+
+VER=0.6
+echo "smartmount v${VER}" >/tmp/smartmount
 readonly CONFIG="/etc/smart-mount/config"
 if [[ -f "${CONFIG}" ]]; then
 	source "${CONFIG}" 

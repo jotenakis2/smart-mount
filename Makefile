@@ -23,6 +23,7 @@ check:
 	test -f nfs-network-check.timer
 
 install: check
+	@if [ -t 0 ] && [ -t 1 ] && [ -x ./setup.sh ]; then ./setup.sh; fi
 	$(INSTALL) -d -m 0755 "$(DESTDIR)$(NM_DISPATCHER_DIR)"
 	$(INSTALL) -d -m 0755 "$(DESTDIR)$(BINDIR)"
 	$(INSTALL) -d -m 0755 "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)"
