@@ -59,7 +59,14 @@ main() {
     LAN_IFACE="$(ask_input "LAN" "Interface LAN" "${DEFAULT_LAN_IFACE}")"
 
     mkdir -p "${CONFIG_DIR}"
-
+	local backup="no"
+	local backup_file
+	if [[ -f "${CONFIG_FILE}" ]]; then
+		backup_file="${CONFIG_FILE}.bak.$(date +%d_%m_%Y-%H.%M.%S)"
+		cp -a "${CONFIG_FILE}" "${backup_file}"
+		backup="yes"
+	fi
+	
     cat > "${CONFIG_FILE}" <<EOF
 # NFS
 NFS_SERVER_IP="${NFS_SERVER_IP}"
@@ -77,9 +84,12 @@ LAN_IFACE="${LAN_IFACE}"
 EOF
 
     chmod 600 "${CONFIG_FILE}"
-
-    whiptail --title "smart-mount setup" --msgbox "Configuration enregistrée dans ${CONFIG_FILE}" 10 78
-
+	if [[ "${backup}" = "no" ]]; then
+    	whiptail --title "smart-mount setup" --msgbox "Configuration enregistrée dans ${CONFIG_FILE}" 10 78
+    elif [[ "${backup}" = "yes" ]]; then
+        whiptail --title "smart-mount setup" --msgbox "Configuration enregistrée dans ${CONFIG_FILE}\n\nPrécédente configuration enregistrée dans ${backup_file}." 10 78
+	fi
+	
 	sanitize_fstab_nfs_entry
 
 }
