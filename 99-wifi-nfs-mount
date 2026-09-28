@@ -37,7 +37,7 @@ trap 'trap_err "$?" "${LINENO}"' ERR
 
 get_current_wifi() {
     if command -v nmcli >/dev/null 2>&1; then
-        nmcli -t -f ACTIVE,SSID dev wifi | awk -F: '$1 == "yes" { print $2; exit }'
+        LC_ALL=C nmcli -t -f ACTIVE,SSID dev wifi | awk -F: '$1 == "yes" { print $2; exit }'
         return 0
     fi
 
@@ -51,29 +51,28 @@ get_current_wifi() {
 
 main() {
     local current_wifi=""
-    # shellcheck disable=SC2154
 	if [[ "${DEVICE}" = "${WIFI_IFACE}" ]]; then
 	    log_info "Event: device=${DEVICE}, state=${STATE}"
 
 	    case "${STATE}" in
 	        up|dhcp4-change|dhcp6-change|connectivity-change|vpn-up)
-  		        # shellcheck disable=SC2310
+				# shellcheck disable=SC2310
 	            current_wifi="$(get_current_wifi || true)"
 
-	            if [[ "${current_wifi}" == "${WIFI_NAME}" ]]; then
-	                log_notice "WiFi ${WIFI_NAME} detecte, montage NFS"
+	            if [[ "${current_wifi:-}" == "${WIFI_NAME}" ]]; then
+	                log_notice "WiFi ${WIFI_NAME} détecté, montage NFS"
 	                "${MAIN_SCRIPT}" mount
 	            else
-	                log_notice "WiFi non cible (${current_wifi}), demontage NFS"
+	                log_notice "WiFi non ciblé (${current_wifi} ≠ ${WIFI_NAME}), pas de NFS à monter"
 	                "${MAIN_SCRIPT}" unmount
 	            fi
 	            ;;
 	        down|vpn-down)
-	            log_notice "Lien WiFi coupe, demontage NFS"
+	            log_notice "Lien WiFi coupé, démontage NFS"
 	            "${MAIN_SCRIPT}" unmount
 	            ;;
 	        *)
-	            log_info "Etat ignore: ${STATE}"
+	            log_info "État ignoré: ${STATE}"
 	            ;;
 	    esac
 	fi

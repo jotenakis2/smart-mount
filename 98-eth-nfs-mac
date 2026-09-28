@@ -59,16 +59,16 @@ is_target_nas_present() {
     fi
 
     if [[ -z "${detected_mac}" ]]; then
-        log_notice "NAS non detecte a l'adresse ${NFS_SERVER_IP}"
+        log_notice "NAS non détecté à l'adresse ${NFS_SERVER_IP}"
         return 1
     fi
 	# shellcheck disable=SC2154
     if [[ "${detected_mac,,}" != "${NFS_SERVER_MAC,,}" ]]; then
-        log_notice "MAC detecte ${detected_mac}, attendu ${NFS_SERVER_MAC}"
+        log_notice "MAC détecté ${detected_mac}, attendu ${NFS_SERVER_MAC}"
         return 1
     fi
 
-    log_notice "NAS domestique confirme: ${NFS_SERVER_IP} (${detected_mac})"
+    log_notice "NAS domestique confirmé : ${NFS_SERVER_IP} (${detected_mac})"
     return 0
 }
 
@@ -80,19 +80,19 @@ main() {
 	    case "${STATE}" in
 	        up|dhcp4-change|dhcp6-change|connectivity-change|vpn-up)
 	            if is_target_nas_present; then
-	                log_notice "Ethernet domestique detecte, montage NFS"
+	                log_notice "Ethernet domestique détecté, montage NFS"
 	                "${MAIN_SCRIPT}" mount
 	            else
-	                log_notice "Ethernet non domestique, demontage NFS"
+	                log_notice "Ethernet non domestique, démontage NFS"
 	                "${MAIN_SCRIPT}" unmount
 	            fi
 	            ;;
 	        down|vpn-down)
-	            log_notice "Lien Ethernet coupe, demontage NFS"
+	            log_notice "Lien Ethernet coupé, démontage NFS"
 	            "${MAIN_SCRIPT}" unmount
 	            ;;
 	        *)
-	            log_info "Etat ignore: ${STATE}"
+	            log_info "État ignoré: ${STATE}"
 	            ;;
 	    esac
 	fi
