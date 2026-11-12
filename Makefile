@@ -21,6 +21,18 @@ check:
 	test -f nfs-smartmount.sh
 	test -f nfs-network-check.service
 	test -f nfs-network-check.timer
+	bash -n 98-eth-nfs-mac
+	bash -n 99-wifi-nfs-mount
+	bash -n nfs-smartmount.sh
+	bash -n setup.sh
+	bash -n tests/run.sh
+	@if command -v shellcheck >/dev/null 2>&1; then \
+		shellcheck -x --severity=info --exclude=SC1091 \
+			98-eth-nfs-mac 99-wifi-nfs-mount nfs-smartmount.sh setup.sh tests/run.sh; \
+	else \
+		printf '%s\n' "shellcheck absent : contrôle de style sauté"; \
+	fi
+	bash tests/run.sh
 
 install: check
 	@if [ -t 0 ] && [ -t 1 ] && [ -x ./setup.sh ]; then ./setup.sh; fi
