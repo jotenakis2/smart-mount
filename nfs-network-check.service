@@ -2,7 +2,9 @@
 Description=Vérification périodique du montage NFS selon le réseau - smartmount
 After=network-online.target
 Wants=network-online.target
+ConditionPathExists=/etc/smart-mount/config
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/nfs-smartmount.sh mount
+TimeoutStartSec=60
+ExecStart=/usr/local/bin/nfs-smartmount.sh apply

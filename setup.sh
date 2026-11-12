@@ -141,13 +141,33 @@ find_fstab_nfs_defaults() {
 # **************************************************************************************************************************************
 
 find_active_wifi_defaults() {
-    local wifi_line wifi_name wifi_iface
-    wifi_line="$(nmcli -t -f NAME,DEVICE,TYPE connection show --active 2>/dev/null | awk -F: '$3=="802-11-wireless"{print; exit}')"
+    local wifi_iface='' ssid=''
+    # NAME dans `connection show` est le nom du profil de connexion, pas le
+    # SSID : le script de montage compare des SSID, on prend donc le SSID réel
+    # du lien actif (iw, à défaut la liste de scan de nmcli).
+    wifi_iface="$(nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null \
+        | awk -F: '$2=="wifi" && $3=="connected"{print $1; exit}')" || true
 
-    if [[ -n "${wifi_line}" ]]; then
-        IFS=':' read -r wifi_name wifi_iface _ <<< "${wifi_line}"
-        DEFAULT_WIFI_NAME="${wifi_name}"
-        DEFAULT_WIFI_IFACE="${wifi_iface}"
+    if [[ -z "${wifi_iface}" ]]; then
+        return 0
+    fi
+
+    DEFAULT_WIFI_IFACE="${wifi_iface}"
+
+    if command -v iw >/dev/null 2>&1; then
+        ssid="$(iw dev "${wifi_iface}" link 2>/dev/null \
+            | sed -n 's/^[[:space:]]*SSID:[[:space:]]*//p' | head -n1)" || true
+    fi
+
+    if [[ -z "${ssid}" ]]; then
+        ssid="$(LC_ALL=C nmcli -t -f ACTIVE,SSID device wifi list ifname "${wifi_iface}" 2>/dev/null \
+            | awk -F: '$1=="yes"{ sub(/^[^:]*:/, ""); print; exit }')" || true
+        # nmcli échappe les ':' d'un SSID en mode -t : on écrit le SSID réel.
+        ssid="${ssid//\\:/:}"
+    fi
+
+    if [[ -n "${ssid}" ]]; then
+        DEFAULT_WIFI_NAME="${ssid}"
     fi
 }
 # **************************************************************************************************************************************
@@ -220,7 +240,7 @@ sanitize_fstab_nfs_entry() {
     }
     END {
         if (NR >= 0) print 0
-    }' /etc/fstab | head -n1)"
+    }' /etc/fstab | head -n1)" || true
 
     [[ "${need_change}" == "1" ]] || return 0
 

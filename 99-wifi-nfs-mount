@@ -4,11 +4,14 @@ set -euo pipefail
 readonly CONFIG="/etc/smart-mount/config"
 if [[ -f "${CONFIG}" ]]; then
 	# shellcheck source=/etc/smart-mount/config
-	source "${CONFIG}" 
+	source "${CONFIG}"
 else
 	echo "config manquante"
 	exit 1
 fi
+
+# Une config antérieure à l'ajout du champ ne doit pas casser le hook via set -u.
+WIFI_IFACE="${WIFI_IFACE:-}"
 
 readonly DEVICE="${1:-}"
 readonly STATE="${2:-}"
@@ -35,47 +38,30 @@ trap_err() {
 
 trap 'trap_err "$?" "${LINENO}"' ERR
 
-get_current_wifi() {
-    if command -v nmcli >/dev/null 2>&1; then
-        LC_ALL=C nmcli -t -f ACTIVE,SSID dev wifi | awk -F: '$1 == "yes" { print $2; exit }'
-        return 0
-    fi
-
-    if command -v iwgetid >/dev/null 2>&1; then
-        iwgetid -r
-        return 0
-    fi
-
-    return 1
-}
-
 main() {
-    local current_wifi=""
-	if [[ "${DEVICE}" = "${WIFI_IFACE}" ]]; then
-	    log_info "Event: device=${DEVICE}, state=${STATE}"
+    if [[ "${DEVICE}" != "${WIFI_IFACE}" ]]; then
+        return 0
+    fi
 
-	    case "${STATE}" in
-	        up|dhcp4-change|dhcp6-change|connectivity-change|vpn-up)
-				# shellcheck disable=SC2310
-	            current_wifi="$(get_current_wifi || true)"
+    log_info "Event: device=${DEVICE}, state=${STATE}"
 
-	            if [[ "${current_wifi:-}" == "${WIFI_NAME}" ]]; then
-	                log_notice "WiFi ${WIFI_NAME} détecté, montage NFS"
-	                "${MAIN_SCRIPT}" mount
-	            else
-	                log_notice "WiFi non ciblé (${current_wifi} ≠ ${WIFI_NAME}), pas de NFS à monter"
-	                "${MAIN_SCRIPT}" unmount
-	            fi
-	            ;;
-	        down|vpn-down)
-	            log_notice "Lien WiFi coupé, démontage NFS"
-	            "${MAIN_SCRIPT}" unmount
-	            ;;
-	        *)
-	            log_info "État ignoré: ${STATE}"
-	            ;;
-	    esac
-	fi
+    case "${STATE}" in
+        up|dhcp4-change|dhcp6-change|connectivity-change|reapply)
+            # Le hook ne décide plus : il déclenche la politique unique du
+            # script principal, qui monte, démonte ou s'abstient selon l'état
+            # réseau complet (SSID ciblé, SSID illisible).
+            "${MAIN_SCRIPT}" apply || log_err "Application de la politique smart-mount en échec"
+            ;;
+        down|vpn-down)
+            # Ici la coupure est un fait, pas une politique : on démonte sans
+            # dépendre de ce que répondra une lecture d'interface juste après.
+            log_notice "Lien WiFi coupé, démontage NFS"
+            "${MAIN_SCRIPT}" unmount || log_err "Démontage NFS en échec"
+            ;;
+        *)
+            log_info "État ignoré: ${STATE}"
+            ;;
+    esac
 }
 
 main
