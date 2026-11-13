@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.10
+VER=1.10.1
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -1556,7 +1556,9 @@ main() {
         -h|--help) help_text; return 0 ;;
         setup)
             if [[ "$(id -u)" -ne 0 ]]; then
-                log_err "$(msg err_root)"
+                # Verbe interactif : le message va sur stderr, où l'utilisateur le
+                # voit, au lieu du journal qu'il ne lira pas.
+                printf '%s\n' "$(msg err_root)" >&2
                 return 1
             fi
             ( set -euo pipefail; setup_main )

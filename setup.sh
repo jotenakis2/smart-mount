@@ -11,4 +11,9 @@ HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 MAIN="${SMARTMOUNT_MAIN:-${HERE}/nas-smartmount.sh}"
 [[ -x "${MAIN}" ]] || MAIN=/usr/local/bin/nas-smartmount.sh
 
+# Les options d'information s'adressent au script, pas au questionnaire.
+case "${1:-}" in
+    -h|--help|-V|--version) exec "${MAIN}" "$@" ;;
+esac
+
 exec "${MAIN}" setup "$@"

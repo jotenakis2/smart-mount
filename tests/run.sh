@@ -960,10 +960,12 @@ check "SMARTMOUNT_LANG=en prime sur la locale" oui "$(contains "${out}" 'Usage:'
 # fstab — les seules qui écrivent dans un fichier système — sont enfin couvertes.
 new_case setup_requires_root
 stub id 'printf "1000\n"'
-rc="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
-        bash "${SCRIPT}" setup >/dev/null 2>&1; echo $? )"
+# Verbe interactif : le refus doit être visible sur stderr, pas seulement au journal.
+out="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
+        bash "${SCRIPT}" setup 2>&1 >/dev/null )"
+rc=$?
 check "setup : refus sans root (code 1)" 1 "${rc}"
-check "setup : message explicite" oui "$(called 'requires root')"
+check "setup : message sur stderr" oui "$(contains "${out}" 'requires root')"
 
 new_case setup_needs_whiptail
 stub id 'printf "0\n"'
