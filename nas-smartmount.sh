@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.11.1
+VER=1.12
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -114,6 +114,7 @@ msg() {
             ws_mac)               text='Adresse MAC de %s (obligatoire : sans elle, aucun montage)' ;;
             ws_mac_missing)       text='Aucune adresse MAC détectée pour %s.\n\nLe serveur n'"'"'a pas répondu : impossible de lire sa MAC. Ce partage ne sera PAS monté\ntant qu'"'"'aucune MAC cible n'"'"'est configurée, en Wi-Fi comme en Ethernet.\n\nPour la trouver :\n  - quand le serveur est joignable :  ip neigh show %s\n  - ou dans l'"'"'interface d'"'"'administration du NAS, ou les baux DHCP de la box\n\nRenseignez ensuite le 6e champ de ce partage dans /etc/smart-mount/config\n(ou relancez : sudo nas-smartmount.sh setup).' ;;
             ws_nets)              text='Réseaux autorisés, séparés par ; (vide = le SSID global, * = indifférent)' ;;
+            ws_owner)             text='Propriétaire local des fichiers montés (uid:gid) — le compte SMB ci-dessous est une autre identité, celle qui s authentifie' ;;
             ws_harden_opts)       text='Ajouter les protections nodev,nosuid,noexec ?\n\nSaisi  : %s\nProposé : %s\n\nCe sont des drapeaux du noyau, valables en NFS comme en CIFS : sans eux, un\npartage réseau peut servir à exécuter un binaire ou à monter un fichier setuid.' ;;
             ws_saved)             text='Configuration enregistrée dans %s' ;;
             ws_saved_backup)      text='Configuration enregistrée dans %s\n\nPrécédente configuration conservée dans :\n%s' ;;
@@ -200,6 +201,7 @@ msg() {
             ws_mac)               text='MAC address of %s (mandatory: without it the share is never mounted)' ;;
             ws_mac_missing)       text='No MAC address detected for %s.\n\nThe server did not answer: its MAC address cannot be read. This share will NOT\nbe mounted until a target MAC is configured, over Wi-Fi as well as Ethernet.\n\nTo find it:\n  - while the server is reachable:  ip neigh show %s\n  - or in the NAS administration interface, or in the router'"'"'s DHCP leases\n\nThen fill in the 6th field of that share in /etc/smart-mount/config\n(or re-run: sudo nas-smartmount.sh setup).' ;;
             ws_nets)              text='Accepted networks, separated by ; (empty = the global SSID, * = any)' ;;
+            ws_owner)             text='Local owner of the mounted files (uid:gid) — the SMB account below is a different identity, the one that authenticates' ;;
             ws_harden_opts)       text='Add the nodev,nosuid,noexec protections?\n\nEntered  : %s\nProposed : %s\n\nThese are kernel flags, valid for NFS as well as CIFS: without them a network\nshare can be used to run a binary or to mount a setuid file.' ;;
             ws_saved)             text='Configuration written to %s' ;;
             ws_saved_backup)      text='Configuration written to %s\n\nPrevious configuration kept in:\n%s' ;;
@@ -1287,6 +1289,40 @@ ensure_safe_opts() { # ensure_safe_opts <options> -> options + les trois drapeau
     printf '%s' "${opts}"
 }
 
+# Le compte SMB (username=) et le propriétaire local des fichiers (uid=, gid=) sont
+# deux identités différentes : le premier s'authentifie auprès du serveur, les seconds
+# décident qui possède les fichiers une fois montés. Sans uid=, mount.cifs monte en
+# uid=0 et seul root peut écrire.
+ensure_owner_opts() { # ensure_owner_opts <options> <uid:gid>
+    local opts="${1:-}"
+    local owner="${2:-}"
+    local uid='' gid=''
+
+    [[ "${owner}" =~ ^[0-9]+:[0-9]+$ ]] || { printf '%s' "${opts}"; return 0; }
+    uid="${owner%%:*}"
+    gid="${owner##*:}"
+
+    case ",${opts}," in
+        *",uid="*) : ;;
+        *) opts="${opts:+${opts},}uid=${uid}" ;;
+    esac
+    case ",${opts}," in
+        *",gid="*) : ;;
+        *) opts="${opts:+${opts},}gid=${gid}" ;;
+    esac
+
+    printf '%s' "${opts}"
+}
+
+# uid:gid de l'humain qui a lancé sudo ou pkexec, sinon celui du shell.
+current_owner() {
+    local uid="${SUDO_UID:-${PKEXEC_UID:-}}" gid=''
+
+    [[ -n "${uid}" ]] || uid="$(id -u)"
+    gid="$(id -g "${uid}" 2>/dev/null || printf '%s' "${uid}")"
+    printf '%s:%s' "${uid}" "${gid}"
+}
+
 ask_yesno() { # ask_yesno <titre> <question> -> 0 si oui
     local title="$1"
     local prompt="$2"
@@ -1387,7 +1423,7 @@ ask_cifs_creds() { # ask_cifs_creds <numéro> <serveur> ; -> chemin du fichier o
 
 ask_share() { # ask_share <numéro> -> "type|serveur|partage|point|options|mac|creds"
     local num="$1"
-    local type server path mount opts mac creds='' safe_opts=''
+    local type server path mount opts mac creds='' safe_opts='' owner=''
     local default_server='' defaults='' mount_default='' opts_default=''
 
     type="$(ask_menu "$(msg ws_share_title "${num}")" "$(msg ws_type "${num}")" \
@@ -1431,6 +1467,9 @@ ask_share() { # ask_share <numéro> -> "type|serveur|partage|point|options|mac|c
     fi
 
     if [[ "${type}" = "cifs" ]]; then
+        # Propriétaire local des fichiers montés : sans uid=, tout appartient à root.
+        owner="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_owner)" "$(current_owner)")"
+        opts="$(ensure_owner_opts "${opts}" "${owner}")"
         creds="$(ask_cifs_creds "${num}" "${server}")"
     fi
 

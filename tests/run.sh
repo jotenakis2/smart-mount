@@ -1081,6 +1081,54 @@ check "questionnaire : aucun appel whiptail malformé" 0 "${bad}"
 # qui est capturé par les appelants.
 check "questionnaire : rien sur stdout" oui "$(lacks "${out}" 'WHIPTAIL:')"
 
+# 82-86. Propriétaire local d'un partage CIFS : le compte SMB (username=) est une
+# autre identité que uid=/gid=. Sans uid=, mount.cifs monte en uid=0 et seul root
+# peut écrire dans le partage — constaté sur la machine.
+new_case owner_opts_added
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_owner_opts "guest,vers=3.0" 1000:1000' _ "${SCRIPT}" 2>/dev/null )"
+check "propriétaire : uid et gid ajoutés" "guest,vers=3.0,uid=1000,gid=1000" "${out}"
+
+new_case owner_opts_present
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_owner_opts "uid=1000,gid=1000,nodev" 1000:1000' _ "${SCRIPT}" 2>/dev/null )"
+check "propriétaire : aucun doublon" "uid=1000,gid=1000,nodev" "${out}"
+
+new_case owner_opts_partial
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_owner_opts "uid=0,guest" 1000:1000' _ "${SCRIPT}" 2>/dev/null )"
+check "propriétaire : gid complété sans toucher uid" "uid=0,guest,gid=1000" "${out}"
+
+new_case owner_opts_invalid
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_owner_opts "guest" nawak' _ "${SCRIPT}" 2>/dev/null )"
+check "propriétaire : saisie invalide ignorée" "guest" "${out}"
+
+new_case owner_current
+out="$( bash -c 'source "$1" >/dev/null 2>&1; SUDO_UID=1000 current_owner' _ "${SCRIPT}" 2>/dev/null )"
+check "propriétaire : SUDO_UID honoré" "1000:1000" "${out}"
+
+# Le chemin CIFS de bout en bout : menu -> cifs, propriétaire 1000:1000.
+new_case setup_cifs_owner
+cat > "${CASE_DIR}/bin/whiptail" <<'STUB'
+#!/bin/sh
+printf 'WHIPTAIL: %s\n' "$*" >> "${CALLS}"
+case "$*" in
+    *--menu*)                         printf 'cifs\n' >&3; exit 0 ;;
+    *uid:gid*)                        printf '1000:1000\n' >&3; exit 0 ;;
+    *--inputbox*|*--passwordbox*)     printf '1\n' >&3; exit 0 ;;
+    *--msgbox*|*--yesno*|*--infobox*) printf 'window\n' >&2; exit 0 ;;
+esac
+STUB
+chmod +x "${CASE_DIR}/bin/whiptail"
+stub id 'printf "0\n"'
+: > "${CASE_DIR}/fstab"
+out="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
+        SMARTMOUNT_FSTAB="${CASE_DIR}/fstab" SMARTMOUNT_LANG=en \
+        bash "${SCRIPT}" setup 2>&1 )"
+rc=$?
+cfg="$(cat "${CASE_DIR}/config" 2>/dev/null)"
+check "questionnaire cifs : code 0" 0 "${rc}"
+check "questionnaire cifs : enregistrement cifs" oui "$(contains "${cfg}" 'cifs|')"
+check "questionnaire cifs : uid/gid dans les options" oui "$(contains "${cfg}" 'uid=1000,gid=1000')"
+check "questionnaire cifs : identifiants dans un fichier à part" oui "$(contains "${cfg}" 'credentials-1')"
+
 # ---------------------------------------------------------------- summary
 
 printf '\n%d test(s) ok, %d échec(s)\n' "${PASS}" "${FAIL}"
