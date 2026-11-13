@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.17
+VER=1.18
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -115,8 +115,8 @@ msg() {
             ws_mac_missing)       text='Aucune adresse MAC détectée pour %s.\n\nLe serveur n'"'"'a pas répondu : impossible de lire sa MAC. Ce partage ne sera PAS monté\ntant qu'"'"'aucune MAC cible n'"'"'est configurée, en Wi-Fi comme en Ethernet.\n\nPour la trouver :\n  - quand le serveur est joignable :  ip neigh show %s\n  - ou dans l'"'"'interface d'"'"'administration du NAS, ou les baux DHCP de la box\n\nRenseignez ensuite le 6e champ de ce partage dans /etc/smart-mount/config\n(ou relancez : sudo nas-smartmount.sh setup).' ;;
             ws_nets)              text='Réseaux autorisés, séparés par ; (vide = le SSID global, * = indifférent). Vus à l instant : %s' ;;
             h_nets)               text='RÉSEAUX' ;;
-            nets_global)          text='(global)' ;;
-            wifi_connected)       text='Wi-Fi %s : %s (attendu : %s)' ;;
+            nets_global)          text='%s (global)' ;;
+            wifi_connected)       text='Wi-Fi %s : %s' ;;
             wifi_disconnected)    text='Wi-Fi %s : non connecté' ;;
             wifi_unknown)         text='Wi-Fi %s : état illisible' ;;
             ws_owner)             text='Propriétaire local des fichiers montés (uid:gid) — le compte SMB ci-dessous est une autre identité, celle qui s authentifie' ;;
@@ -209,8 +209,8 @@ msg() {
             ws_mac_missing)       text='No MAC address detected for %s.\n\nThe server did not answer: its MAC address cannot be read. This share will NOT\nbe mounted until a target MAC is configured, over Wi-Fi as well as Ethernet.\n\nTo find it:\n  - while the server is reachable:  ip neigh show %s\n  - or in the NAS administration interface, or in the router'"'"'s DHCP leases\n\nThen fill in the 6th field of that share in /etc/smart-mount/config\n(or re-run: sudo nas-smartmount.sh setup).' ;;
             ws_nets)              text='Accepted networks, separated by ; (empty = the global SSID, * = any). Seen right now: %s' ;;
             h_nets)               text='NETWORKS' ;;
-            nets_global)          text='(global)' ;;
-            wifi_connected)       text='Wi-Fi %s: %s (expected: %s)' ;;
+            nets_global)          text='%s (global)' ;;
+            wifi_connected)       text='Wi-Fi %s: %s' ;;
             wifi_disconnected)    text='Wi-Fi %s: not connected' ;;
             wifi_unknown)         text='Wi-Fi %s: unreadable' ;;
             ws_owner)             text='Local owner of the mounted files (uid:gid) — the SMB account below is a different identity, the one that authenticates' ;;
@@ -945,7 +945,7 @@ render_table() {
     local wifi_line=''
 
     case "${SHOW_WIFI_STATE}" in
-        connected)    wifi_line="$(msg wifi_connected "${SHOW_WIFI_IFACE:-?}" "${SHOW_WIFI_SSID}" "${WIFI_NAME:-?}")" ;;
+        connected)    wifi_line="$(msg wifi_connected "${SHOW_WIFI_IFACE:-?}" "${SHOW_WIFI_SSID}")" ;;
         disconnected) wifi_line="$(msg wifi_disconnected "${SHOW_WIFI_IFACE:-?}")" ;;
         *)            wifi_line="$(msg wifi_unknown "${SHOW_WIFI_IFACE:-?}")" ;;
     esac
@@ -962,8 +962,13 @@ render_table() {
         esac
         # Le réseau propre au partage : c'est lui qui décide du montage, pas la ligne
         # Wi-Fi globale affichée au-dessus (qui n'est que l'état de la machine).
-        nets_disp="${nets}"
-        [[ -n "${nets_disp}" ]] || nets_disp="$(msg nets_global)"
+        if [[ -n "${nets}" ]]; then
+            nets_disp="${nets}"
+        elif [[ -n "${WIFI_NAME:-}" ]]; then
+            nets_disp="$(msg nets_global "${WIFI_NAME}")"
+        else
+            nets_disp='-'
+        fi
         cells+=("${type}|${point}|${source}|${disp}|${nets_disp}|${copts}")
         (( ${#type} > w_type )) && w_type=${#type}
         (( ${#point} > w_point )) && w_point=${#point}
@@ -1087,7 +1092,7 @@ render_json() {
         printf '  "config": "%s",\n' "$(json_escape "${CONFIG}")"
         printf '  "config_readable": false,\n'
     fi
-    printf '  "wifi": {"iface": "%s", "ssid": "%s", "state": "%s", "expected": "%s"},\n' \
+    printf '  "wifi": {"iface": "%s", "ssid": "%s", "state": "%s", "default_network": "%s"},\n' \
         "$(json_escape "${SHOW_WIFI_IFACE}")" "$(json_escape "${SHOW_WIFI_SSID}")" \
         "$(json_escape "${SHOW_WIFI_STATE}")" "$(json_escape "${WIFI_NAME:-}")"
     print_json_array shares 1 "${shares[@]}"

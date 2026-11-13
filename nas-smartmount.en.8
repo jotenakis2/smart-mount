@@ -44,8 +44,10 @@ when the mount no longer answers, or
 and the options retained in the configuration.
 Any NFS or CIFS mount that does not come from the configuration is listed as
 .IR "mounted (not in configuration)" .
-The current Wi-Fi state is printed above the table: interface, SSID, and the SSID the
-configuration expects.
+The current Wi-Fi state is printed above the table: interface and SSID. Nothing more —
+what a share expects is its own business, and the
+.B NETWORKS
+column says it.
 That line is the machine's state; the
 .B NETWORKS
 column carries the networks accepted by each share
@@ -82,6 +84,9 @@ These values are never translated, and the current Wi-Fi state is reported in a
 object
 .RI ( iface ", " ssid ", " state ", " expected ),
 and each share carries
+.I networks
+(as the effective list, the global default being written
+.IR "(global)" ),
 .I network_allowed
 (whether the current SSID is accepted for it, or
 .B null

@@ -44,8 +44,10 @@ quand le montage ne répond plus, ou
 et les options retenues dans la configuration.
 Tout montage NFS ou CIFS qui ne vient pas de la configuration apparaît en
 .IR "mounted (not in configuration)" .
-L'état Wi-Fi courant est affiché au-dessus du tableau : interface, SSID, et le SSID
-attendu par la configuration.
+L'état Wi-Fi courant est affiché au-dessus du tableau : interface et SSID, rien de plus —
+ce qu'un partage attend est son affaire, et la colonne
+.B RÉSEAUX
+le dit.
 Cette ligne est l'état de la machine ; la colonne
 .B RÉSEAUX
 porte les réseaux acceptés par chaque partage
@@ -81,6 +83,9 @@ rapporté dans un objet
 .B wifi
 .RI ( iface ", " ssid ", " state ", " expected ),
 et chaque partage porte
+.I networks
+(la liste effective, le défaut global étant écrit
+.IR "(global)" ),
 .I network_allowed
 (le SSID courant est-il accepté pour lui, ou
 .B null

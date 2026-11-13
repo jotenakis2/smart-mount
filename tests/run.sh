@@ -1149,7 +1149,8 @@ new_case show_wifi_connected
 set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,rsize=1"
 write_config
 out="$(run_show)"
-check "show : ssid et cible affichés" oui "$(contains "${out}" 'Wi-Fi wlan0: Maison (expected: Maison)')"
+check "show : ssid affiché, sans attendu" oui "$(contains "${out}" 'Wi-Fi wlan0: Maison')"
+check "show : plus de mention d'attendu" oui "$(lacks "${out}" 'expected')"
 check "show : le tableau suit la ligne wifi" oui "$(contains "${out}" 'MOUNT POINT')"
 
 new_case show_wifi_disconnected
@@ -1180,7 +1181,7 @@ check "show : en-tête RÉSEAUX" oui "$(contains "${out}" 'NETWORKS')"
 new_case show_networks_global
 write_config
 out="$(run_show)"
-check "show : (global) quand le champ est vide" oui "$(contains "${out}" '(global)')"
+check "show : réseau hérité affiché avec (global)" oui "$(contains "${out}" 'Maison (global)')"
 
 new_case show_networks_json
 CASE_SHARES=(
