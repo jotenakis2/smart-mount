@@ -18,7 +18,11 @@ conflicts=('smart-mount-git')
 # sauvegarde qu'aux fichiers qu'il a lui-même installés.
 install="$pkgname.install"
 source=("$url/archive/v$pkgver/$pkgname-$pkgver.tar.gz")
-sha256sums=('1b290533e113ad1b2e831d14653a011dbfb406f536aa861a14e36e2d27c2d885')
+# SKIP volontaire : ce PKGBUILD est aussi présent DANS le tarball qu'il télécharge,
+# et il ne peut pas contenir le sha256 de lui-même. La copie publiée sur l'AUR doit,
+# elle, porter le vrai hash :
+#   makepkg -g >> PKGBUILD      (ou : sha256sum smart-mount-<version>.tar.gz)
+sha256sums=('SKIP')
 
 package() {
     cd "$pkgname-$pkgver"

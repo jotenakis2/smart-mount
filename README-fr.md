@@ -272,6 +272,11 @@ serveur CIFS (`mount.cifs` n'est exercé qu'à travers un stub).
 makepkg -si          # puis : sudo smart-mount-setup
 ```
 
+La copie du `PKGBUILD` dans le dépôt utilise `sha256sums=('SKIP')`, parce qu'elle voyage
+aussi *à l'intérieur* du tarball qu'elle télécharge et ne peut pas porter son propre
+hash. La copie publiée sur l'AUR doit porter le vrai (`makepkg -g >> PKGBUILD`), avec un
+`.SRCINFO` regénéré en conséquence.
+
 Le reste du travail d'empaquetage est le même partout : installer
 `nfs-smartmount.8`, `org.jotenakis.smartmount.policy`, les deux hooks NetworkManager,
 l'unité et le timer. La CI rejoue la suite de tests sur des conteneurs Debian, Ubuntu,

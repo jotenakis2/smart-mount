@@ -20,6 +20,6 @@ pkgbase = smart-mount
 	provides = smart-mount
 	conflicts = smart-mount-git
 	source = https://github.com/jotenakis2/smart-mount/archive/v1.7/smart-mount-1.7.tar.gz
-	sha256sums = 1b290533e113ad1b2e831d14653a011dbfb406f536aa861a14e36e2d27c2d885
+	sha256sums = SKIP
 
 pkgname = smart-mount
