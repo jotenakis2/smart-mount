@@ -1,4 +1,4 @@
-.TH NAS-SMARTMOUNT 8 "2026-11-13" "smart-mount 1.15" "System Administration Manual"
+.TH NAS-SMARTMOUNT 8 "2026-11-13" "smart-mount 1.20" "System Administration Manual"
 .SH NAME
 nas-smartmount \- mount NFS and CIFS shares only on the right network, from the
 right server
@@ -36,61 +36,29 @@ network).
 .SH COMMANDS
 .TP
 .B show
-Print, for every configured share, its mount point, source, state
-.RI ( "mounted, healthy" ,
-.I "mounted, NOT RESPONDING"
-when the mount no longer answers, or
-.IR "not mounted" )
-and the options retained in the configuration.
-Any NFS or CIFS mount that does not come from the configuration is listed as
-.IR "mounted (not in configuration)" .
-The current Wi-Fi state is printed above the table: interface and SSID. Nothing more —
-what a share expects is its own business, and the
+Print the current network, then one row per share: type, mount point, source, state,
+networks accepted, and the options retained.
+The first line is the machine; the
 .B AUTHORIZED NETWORKS
-column says it.
-That line is the machine's state; the
-.B AUTHORIZED NETWORKS
-column carries the networks accepted by each share
-.RI ( "(global)" ,
-or a list, or
+column is the share's own list
+.RI ( "(global)" ","
+a list, or
 .RI * ),
-which is what actually decides whether that share may mount here — so a share that did not
-mount is explained without reading the journal.
-Read-only: nothing is mounted, unmounted or logged.
-It also works without root: the configuration is then unreadable, only the real mounts
-are listed, and a note says so.
+and that is what decides whether it may mount here.
+Read-only, and no root needed: without the configuration it lists the real mounts and
+says so.
 .TP
 .BI show " \-\-json"
-The same information as JSON, for a script or a graphical front end.
-Each share carries
-.IR type ,
-.IR server ,
-.IR share ,
-.IR mountpoint ,
-.IR networks ,
-.IR source ,
-.IR fstype ,
-.I options
-(as retained),
-.I runtime_options
-(as reported by the kernel),
-.IR state ,
-.I mounted
-and
-.IR healthy .
-The credentials path never appears.
-These values are never translated, and the current Wi-Fi state is reported in a
+The same rows as JSON, plus a
 .B wifi
 object
-.RI ( iface ", " ssid ", " state ", " expected ),
-and each share carries
-.I networks
-(as the effective list, the global default being written
-.IR "(global)" ),
+.RI ( iface ", " ssid ", " state ", " default_network )
+and, per share,
 .I network_allowed
-(whether the current SSID is accepted for it, or
+(the current SSID is accepted, or
 .B null
-when the SSID cannot be read).
+when it cannot be read).
+Machine values are never translated; the credentials path never appears.
 .TP
 .B apply
 Evaluate the policy for every share and mount, repair or unmount as required.
@@ -314,18 +282,21 @@ Configuration missing, or no share configured.
 .B 127
 The server was unreachable before mounting.
 .SH EXAMPLES
-Show what is mounted, with the options retained for each share:
+Show what is mounted, and why:
 .PP
 .RS
 .EX
 $ sudo nas-smartmount.sh show
-TYPE  MOUNT POINT     SOURCE                             STATE             OPTIONS
-nfs   /media/NAS      192.168.50.85:/media/diskusb/data  mounted, healthy  nodev,nosuid,noexec
-cifs  /media/NAS-smb  //192.168.50.85/usbdisk_data       mounted, healthy  guest,uid=1000
+Wi-Fi wlan0: MaisonDuRuet
+
+TYPE  MOUNT POINT     SOURCE                             STATE             AUTHORIZED NETWORKS    OPTIONS
+nfs   /media/NAS      192.168.50.85:/media/diskusb/data  mounted, healthy  MaisonDuRuet (global)  nodev,nosuid,noexec
+cifs  /media/NAS-smb  //192.168.50.85/usbdisk_data       not mounted       MaisonDuRuet;ChezPapa  guest,uid=1000
 .EE
 .RE
 .PP
 Check the policy without touching anything:
+
 .PP
 .RS
 .EX

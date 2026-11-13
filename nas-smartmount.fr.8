@@ -36,60 +36,27 @@ actifs (portable docké, Wi-Fi sur un autre réseau).
 .SH COMMANDES
 .TP
 .B show
-Affiche, pour chaque partage configuré, son point de montage, sa source, son état
-.RI ( "mounted, healthy" ,
-.I "mounted, NOT RESPONDING"
-quand le montage ne répond plus, ou
-.IR "not mounted" )
-et les options retenues dans la configuration.
-Tout montage NFS ou CIFS qui ne vient pas de la configuration apparaît en
-.IR "mounted (not in configuration)" .
-L'état Wi-Fi courant est affiché au-dessus du tableau : interface et SSID, rien de plus —
-ce qu'un partage attend est son affaire, et la colonne
+Affiche le réseau courant, puis une ligne par partage : type, point de montage, source,
+état, réseaux acceptés et options retenues.
+La première ligne est la machine ; la colonne
 .B RÉSEAUX AUTORISÉS
-le dit.
-Cette ligne est l'état de la machine ; la colonne
-.B RÉSEAUX AUTORISÉS
-porte les réseaux acceptés par chaque partage
-.RI ( "(global)" ,
-ou une liste, ou
+est la liste propre au partage
+.RI ( "(global)" ","
+une liste, ou
 .RI * ),
-et c'est elle qui décide si ce partage peut monter ici — de quoi expliquer un partage qui
-n'est pas monté sans aller lire le journal.
-Lecture seule : rien n'est monté, démonté ni journalisé.
-Fonctionne aussi sans root : la configuration est alors illisible, seuls les
-montages réels sont listés, et une note le dit.
+et c'est elle qui décide s'il peut monter ici.
+Lecture seule, sans root : sans la configuration, il liste les montages réels et le dit.
 .TP
 .BI show " \-\-json"
-La même information en JSON, pour un script ou une interface graphique.
-Chaque partage porte
-.IR type ,
-.IR server ,
-.IR share ,
-.IR mountpoint ,
-.IR networks ,
-.IR source ,
-.IR fstype ,
-.I options
-(les options retenues),
-.I runtime_options
-(celles rapportées par le noyau),
-.IR state ,
-.I mounted
-et
-.IR healthy .
-Le chemin des fichiers d'identifiants n'y apparaît jamais, et l'état Wi-Fi courant est
-rapporté dans un objet
+Les mêmes lignes en JSON, plus un objet
 .B wifi
-.RI ( iface ", " ssid ", " state ", " expected ),
-et chaque partage porte
-.I networks
-(la liste effective, le défaut global étant écrit
-.IR "(global)" ),
+.RI ( iface ", " ssid ", " state ", " default_network )
+et, par partage,
 .I network_allowed
-(le SSID courant est-il accepté pour lui, ou
+(le SSID courant est accepté, ou
 .B null
-quand le SSID est illisible).
+quand il est illisible).
+Les valeurs machine ne sont jamais traduites ; le chemin des identifiants n'apparaît pas.
 .TP
 .B apply
 Évalue la politique de chaque partage et monte, répare ou démonte selon le cas.
@@ -294,18 +261,21 @@ Configuration absente, ou aucun partage configuré.
 .B 127
 Le serveur était injoignable avant le montage.
 .SH EXEMPLES
-Voir ce qui est monté, avec les options retenues pour chaque partage :
+Voir ce qui est monté, et pourquoi :
 .PP
 .RS
 .EX
 $ sudo nas-smartmount.sh show
-TYPE  MOUNT POINT     SOURCE                             STATE             OPTIONS
-nfs   /media/NAS      192.168.50.85:/media/diskusb/data  mounted, healthy  nodev,nosuid,noexec
-cifs  /media/NAS-smb  //192.168.50.85/usbdisk_data       mounted, healthy  guest,uid=1000
+Wi-Fi wlan0 : MaisonDuRuet
+
+TYPE  MOUNT POINT     SOURCE                             ÉTAT              RÉSEAUX AUTORISÉS     OPTIONS
+nfs   /media/NAS      192.168.50.85:/media/diskusb/data  monté, sain       MaisonDuRuet (global)  nodev,nosuid,noexec
+cifs  /media/NAS-smb  //192.168.50.85/usbdisk_data       démonté           MaisonDuRuet;ChezPapa  guest,uid=1000
 .EE
 .RE
 .PP
 Contrôler la politique sans rien toucher :
+
 .PP
 .RS
 .EX
