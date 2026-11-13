@@ -33,12 +33,6 @@ propre initiative.
 Les deux hooks NetworkManager et le timer systemd ne font que l'appeler : c'est ce
 qui les empêche de défaire mutuellement leur travail quand les deux liens sont
 actifs (portable docké, Wi-Fi sur un autre réseau).
-.PP
-Les messages de journal, les erreurs et la sortie de
-.B show
-sont en anglais ; l'aide
-.RB ( \-\-help )
-et cette page sont en français.
 .SH COMMANDES
 .TP
 .B show
@@ -213,6 +207,13 @@ prévu pour les tests.
 .B SMARTMOUNT_DEPS
 Liste des dépendances d'exécution attendues, remplaçant le contrôle habituel.
 Prévu pour les tests.
+.TP
+.B SMARTMOUNT_LANG
+Force la langue des messages
+.RB ( fr
+ou
+.IR en ),
+au lieu de la déduire de la locale.
 .TP
 .B SMARTMOUNT_GROUP
 Groupe propriétaire du fichier de configuration, utilisé par
