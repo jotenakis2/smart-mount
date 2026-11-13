@@ -66,7 +66,7 @@ les autres partages ne sont pas affectés.
   ```
 
   Au-dessus du tableau, l'état Wi-Fi courant (interface et SSID) — cette ligne est la
-  machine, rien de plus. La colonne `RÉSEAUX` porte ce que chaque partage accepte — la liste
+  machine, rien de plus. La colonne `RÉSEAUX AUTORISÉS` porte ce que chaque partage accepte — la liste
   effective, avec `(global)` quand il hérite du SSID global, ou `*` — et c'est elle qui
   décide s'il peut monter ici. Un partage non monté est
   donc expliqué sans le journal, et le JSON ajoute `network_allowed` par partage.

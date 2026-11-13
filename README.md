@@ -65,7 +65,7 @@ shares are unaffected.
   ```
 
   Above the table, the current Wi-Fi state (interface and SSID) — that line is the machine,
-  nothing more. The `NETWORKS` column carries what each share accepts — the effective list,
+  nothing more. The `AUTHORIZED NETWORKS` column carries what each share accepts — the effective list,
   with `(global)` when it inherits the global SSID, or `*` — and that is what decides
   whether it may mount here. A share that did not mount is
   therefore explained without the journal, and the JSON adds `network_allowed` per share.
