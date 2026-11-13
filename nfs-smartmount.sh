@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.5
+VER=1.6
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -67,7 +67,7 @@ trap_err() {
     case "${exit_code}" in
         1)   str="Error mounting a share (see the log lines above)";;
         2)   str="Error unmounting a mount point (see the log lines above)";;
-        3)   str="${SCRIPT_NAME} syntax error - valid usage is : ${SCRIPT_NAME} {mount|unmount|apply}" ;;
+        3)   str="${SCRIPT_NAME} syntax error - valid usage is : ${SCRIPT_NAME} {show|mount|unmount|apply}" ;;
         4)   str="MAC cible absente pour un partage: refus de monter (voir README)";;
         5)   str="Dépendance(s) manquante(s): ${MISSING_DEPS} — voir README, section Requirements";;
         122) str="Configuration absente ou sans partage (${CONFIG})";;
@@ -452,17 +452,98 @@ unmount_all() {
     return ${rc}
 }
 
-main() {
-    local action="${1:-}"
+# Affiche les montages actifs, partage par partage, et signale tout montage
+# nfs/cifs qui ne vient pas de la configuration. Lecture seule : n'appelle que
+# findmnt (borné) et le test de santé. Fonctionne aussi sans les droits root :
+# la configuration est alors illisible et seule la partie « montages réels »
+# s'affiche, avec une note.
+show_mounts() {
+    local have_config=0
+    local rec='' type='' server='' path='' mount='' spec=''
+    local target='' source='' fstype='' opts='' state=''
+    local row='' rtype='' rpoint='' rsource='' rstate=''
+    local h_type='TYPE' h_point='POINT DE MONTAGE' h_source='SOURCE' h_state='ÉTAT'
+    local w_type=0 w_point=0 w_source=0
+    local -a rows=()
+    local -a configured=()
+    local known=0 point=''
 
+    load_config && have_config=1
+
+    for rec in "${SHARES[@]}"; do
+        type="$(share_field "${rec}" 1)"
+        server="$(share_field "${rec}" 2)"
+        path="$(share_field "${rec}" 3)"
+        mount="$(share_field "${rec}" 4)"
+        spec="$(share_spec "${type}" "${server}" "${path}")"
+        configured+=("${mount}")
+
+        target='' source='' fstype='' opts=''
+        if read -r target source fstype opts < <(timeout 5 findmnt -M "${mount}" -no TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null) \
+            && [[ -n "${target}" ]]; then
+            if mount_is_healthy "${mount}"; then
+                state='monté, sain'
+            else
+                state='monté, MUET'
+            fi
+            rows+=("${type}|${mount}|${source}|${state}")
+        else
+            rows+=("${type}|${mount}|${spec}|démonté")
+        fi
+    done
+
+    while read -r target source fstype opts; do
+        [[ -n "${target}" ]] || continue
+        known=0
+        for point in "${configured[@]}"; do
+            [[ "${point}" == "${target}" ]] && known=1
+        done
+        [[ ${known} -eq 1 ]] && continue
+        if [[ ${have_config} -eq 1 ]]; then
+            rows+=("${fstype}|${target}|${source}|monté (hors configuration)")
+        else
+            rows+=("${fstype}|${target}|${source}|monté")
+        fi
+    done < <(timeout 5 findmnt -t nfs,nfs4,cifs -no TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null)
+
+    w_type=${#h_type}
+    w_point=${#h_point}
+    w_source=${#h_source}
+
+    for row in "${rows[@]}"; do
+        IFS='|' read -r rtype rpoint rsource rstate <<< "${row}"
+        (( ${#rtype} > w_type )) && w_type=${#rtype}
+        (( ${#rpoint} > w_point )) && w_point=${#rpoint}
+        (( ${#rsource} > w_source )) && w_source=${#rsource}
+    done
+
+    printf '%-*s  %-*s  %-*s  %s\n' "${w_type}" "${h_type}" "${w_point}" "${h_point}" \
+        "${w_source}" "${h_source}" "${h_state}"
+
+    for row in "${rows[@]}"; do
+        IFS='|' read -r rtype rpoint rsource rstate <<< "${row}"
+        printf '%-*s  %-*s  %-*s  %s\n' "${w_type}" "${rtype}" "${w_point}" "${rpoint}" \
+            "${w_source}" "${rsource}" "${rstate}"
+    done
+
+    if [[ ${#rows[@]} -eq 0 ]]; then
+        echo "(aucun montage nfs/cifs actif)"
+    fi
+
+    if [[ ${have_config} -eq 0 ]]; then
+        echo
+        echo "Configuration illisible (${CONFIG}) : lancer avec sudo pour la comparer aux montages réels."
+    fi
+
+    return 0
+}
+
+load_config() {
     SHARES=()
 
-    if [[ -f "${CONFIG}" ]]; then
-        # shellcheck disable=SC1090
-        source "${CONFIG}"
-    else
-        return 122
-    fi
+    [[ -f "${CONFIG}" ]] || return 1
+    # shellcheck disable=SC1090
+    source "${CONFIG}" 2>/dev/null || return 1
 
     # Compatibilité : un fichier de configuration antérieur (un seul partage NFS,
     # variables à plat) reste lisible sans migration préalable.
@@ -470,11 +551,24 @@ main() {
         SHARES=("nfs|${NFS_SERVER_IP}|${NFS_SHAREDPATH:-}|${MOUNT_POINT:-}|${NFS_OPTS:-}|${NFS_SERVER_MAC:-}|")
     fi
 
+    return 0
+}
+
+main() {
+    local action="${1:-}"
+
+    case "${action}" in
+        show) show_mounts; return ;;
+        mount|unmount|apply) ;;
+        *) return 3 ;;
+    esac
+
+    load_config || return 122
+
     case "${action}" in
         mount)   run_policy mount ;;
         unmount) unmount_all ;;
         apply)   run_policy apply ;;
-        *)       return 3 ;;
     esac
 }
 

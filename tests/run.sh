@@ -35,10 +35,12 @@ new_case() { # new_case <name>
     mkdir -p "${CASE_DIR}/bin" "${CASE_DIR}/mnt" "${CASE_DIR}/mnt2"
     CALLS="${CASE_DIR}/calls"
     FLAG="${CASE_DIR}/flag"
+    FINDTAB="${CASE_DIR}/findtab"
     CASE_DEPS=""
     : > "${CALLS}"
+    : > "${FINDTAB}"
     rm -f "${FLAG}"
-    export CALLS FLAG
+    export CALLS FLAG FINDTAB
 
     # Defaults: a home Wi-Fi in range, nothing mounted, everything reachable.
     stub logger     'printf "LOG %s\n" "$*" >> "$CALLS"'
@@ -50,6 +52,20 @@ new_case() { # new_case <name>
     stub ls         'printf "ls\n" >> "$CALLS"; exit 0'
     stub nmcli      'printf "nmcli %s\n" "$*" >> "$CALLS"; exit 0'
     stub ip         'printf "ip %s\n" "$*" >> "$CALLS"; exit 0'
+    # findmnt : répond depuis ${FINDTAB} ("TARGET SOURCE FSTYPE OPTIONS"), et
+    # échoue quand -M cible un point absent (comme le vrai).
+    stub findmnt    'printf "findmnt %s\n" "$*" >> "$CALLS"
+target=""
+prev=""
+for a in "$@"; do
+    [ "$prev" = "-M" ] && target="$a"
+    prev="$a"
+done
+if [ -n "$target" ]; then
+    grep -F -- "$target " "${FINDTAB}" 2>/dev/null || exit 1
+else
+    cat "${FINDTAB}" 2>/dev/null || true
+fi'
     stub iw         'printf "iw %s\n" "$*" >> "$CALLS"; printf "Connected to aa:bb:cc:dd:ee:ff (on wlan0)\n\tSSID: Maison\n\tfreq: 5180\n"'
 
     CASE_SHARES=("nfs|192.168.1.10|/share|${CASE_DIR}/mnt|nodev,nosuid,noexec|aa:bb:cc:dd:ee:ff|")
@@ -151,6 +167,29 @@ first_call_line() { # first_call_line <pattern>
 
 called_count() { # called_count <pattern> -> nombre d'occurrences
     grep -c -- "$1" "${CALLS}" || true
+}
+
+set_mount_table() { # set_mount_table "TARGET SOURCE FSTYPE OPTIONS" ...
+    printf '%s\n' "$@" > "${FINDTAB}"
+}
+
+run_show() { # run_show -> stdout du verbe show
+    ( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
+        SMARTMOUNT_DEPS="${CASE_DEPS-}" bash "${SCRIPT}" show 2>/dev/null )
+}
+
+contains() { # contains <texte> <motif> -> oui/non
+    case "$1" in
+        *"$2"*) echo oui ;;
+        *)      echo non ;;
+    esac
+}
+
+lacks() { # lacks <texte> <motif> -> oui si absent
+    case "$1" in
+        *"$2"*) echo non ;;
+        *)      echo oui ;;
+    esac
 }
 
 # ---------------------------------------------------------------- cases
@@ -625,6 +664,56 @@ CASE_SHARES=()
 write_config
 rc="$(run_script apply)"
 check "aucun partage : code 122" 122 "${rc}"
+
+# 48-52. Verbe `show` : lecture seule, tableau aligné, montages hors config.
+new_case show_both_mounted
+set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,nodev" \
+                "${CASE_DIR}/mnt2 //192.168.1.30/public cifs rw,vers=3.0"
+CASE_SHARES=(
+    "nfs|192.168.1.10|/share|${CASE_DIR}/mnt|nodev|aa:bb:cc:dd:ee:ff|"
+    "cifs|192.168.1.30|public|${CASE_DIR}/mnt2|vers=3.0|aa:bb:cc:dd:ee:ff|"
+)
+write_config
+out="$(run_show)"
+check "show : en-tête" oui "$(contains "${out}" 'POINT DE MONTAGE')"
+check "show : partage nfs monté et sain" oui "$(contains "${out}" 'monté, sain')"
+check "show : les deux points listés" oui "$(contains "${out}" "${CASE_DIR}/mnt2")"
+check "show : aucun montage hors config" oui "$(lacks "${out}" 'hors configuration')"
+
+new_case show_one_unmounted
+set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,nodev"
+CASE_SHARES=(
+    "nfs|192.168.1.10|/share|${CASE_DIR}/mnt|nodev|aa:bb:cc:dd:ee:ff|"
+    "cifs|192.168.1.30|public|${CASE_DIR}/mnt2|vers=3.0|aa:bb:cc:dd:ee:ff|"
+)
+write_config
+out="$(run_show)"
+check "show : partage démonté signalé" oui "$(contains "${out}" 'démonté')"
+check "show : source configurée affichée" oui "$(contains "${out}" '//192.168.1.30/public')"
+
+new_case show_foreign_mount
+set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,nodev" \
+                "/media/AUTRE //192.168.1.99/x cifs rw"
+write_config
+out="$(run_show)"
+check "show : montage hors configuration signalé" oui "$(contains "${out}" 'monté (hors configuration)')"
+
+new_case show_unhealthy
+set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,nodev"
+stub stat 'printf "stat\n" >> "$CALLS"; exit 1'
+stub ls 'printf "ls\n" >> "$CALLS"; exit 1'
+write_config
+out="$(run_show)"
+check "show : montage muet signalé" oui "$(contains "${out}" 'monté, MUET')"
+
+new_case show_config_unreadable
+set_mount_table "/media/NAS 192.168.1.10:/share nfs4 rw,nodev"
+write_config
+chmod 000 "${CASE_DIR}/config"
+out="$(run_show)"
+check "show : montages réels affichés sans config" oui "$(contains "${out}" '/media/NAS')"
+check "show : note sur la config illisible" oui "$(contains "${out}" 'Configuration illisible')"
+chmod 600 "${CASE_DIR}/config"
 
 # ---------------------------------------------------------------- summary
 
