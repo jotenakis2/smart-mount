@@ -1,0 +1,14 @@
+# Artefacts de makepkg : jamais dans le dépôt.
+#   pkg/   arbre reconstruit pour le paquet
+#   src/   tarball du tag, décompressé
+#   *.pkg.tar.* / *.tar.gz   le paquet produit et sa source téléchargée
+pkg/
+src/
+*.pkg.tar.*
+*src.tar.gz
+smart-mount-*.tar.gz
+
+# Divers
+*.log
+*.orig
+*.rej
