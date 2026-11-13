@@ -179,6 +179,18 @@ owner (`uid:gid`, defaulting to whoever ran `sudo` or `pkexec`, read from `SUDO_
 `PKEXEC_UID`). It writes `uid=`/`gid=` into the options, without duplicating values that
 are already there.
 
+### One NAS, several places
+
+Two patterns, and they are not interchangeable:
+
+- **same share, several networks** — one record, the 8th field lists them:
+  `réseaux="Maison;ChezPapa"`. The MAC check still runs on whichever network you are
+  on, so the share only mounts where the server actually is.
+- **another server, or another address** — a **separate record with its own mount
+  point** (`/media/NAS-papa`). Two records must never share a mount point: the one that
+  does not recognise the network would unmount the other share's mount point. The
+  wizard warns when it sees the conflict.
+
 ### CIFS credentials
 
 The wizard asks for an optional user name, password and domain, and writes them to
@@ -305,8 +317,10 @@ server (`mount.cifs` is exercised through a stub only).
   that disappears can freeze accesses for as long as the RPC timeouts last. The hooks
   unmount on network loss, the timer repairs dead mounts, and the share options are
   yours to tune.
-- Interface names are global, not per share: one Wi-Fi interface and one LAN interface
-  per machine. Only the list of accepted networks is per share.
+- Interface names are global (one Wi-Fi, one LAN per machine); the **list of accepted
+  networks is per share**, so the same NAS can mount at home and at your father's with
+  a single record: `réseaux="Maison;ChezPapa"`. The wizard shows the SSIDs it can see
+  and defaults to the current one.
 - `umount -f` (abandon pending RPCs) is only used on NFS. On CIFS it has no such
   effect and can fail where a lazy unmount succeeds, so the lazy fallback applies.
 

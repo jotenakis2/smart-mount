@@ -126,8 +126,9 @@ et
 sont ignorés par mount.cifs : le montage reste en
 .BR relatime .
 Le questionnaire propose d'ajouter les trois drapeaux manquants (il demande avant), et
-les met par défaut dans les deux profils. Pour un partage CIFS, il demande en plus le
-propriétaire local
+les met par défaut dans les deux profils. Pour un partage CIFS, il demande en plus les permissions
+.RI ( file_mode:dir_mode )
+et le propriétaire local
 .RI ( uid:gid ),
 distinct du compte SMB : sans lui, mount.cifs monte en uid=0 et seul root peut écrire.
 CIFS a ses propres options utiles :
@@ -307,8 +308,10 @@ peut figer un processus aussi longtemps que durent les timeouts RPC ; les hooks
 démontent à la perte du réseau, le timer répare les montages morts, et
 .B umount \-f
 (abandon des RPC en attente) n'est tenté que sur NFS.
-Les noms d'interface sont globaux, seule la liste des réseaux acceptés est par
-partage.
+Les noms d'interface sont globaux, mais la liste des réseaux acceptés est par partage :
+c'est ce qui permet à un même partage de monter chez soi et ailleurs. Deux
+enregistrements ne doivent jamais partager un point de montage — celui qui ne reconnaît
+pas le réseau démonterait le partage de l'autre.
 .SH VOIR AUSSI
 .BR mount (8),
 .BR umount (8),

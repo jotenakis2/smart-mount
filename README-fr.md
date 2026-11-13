@@ -167,6 +167,18 @@ Un fichier de configuration d'une version antérieure (variables à plat
 `NFS_SERVER_IP`, `MOUNT_POINT`…) reste lisible : il est traité comme un seul partage
 NFS. Relancez `sudo make install` pour passer au nouveau format.
 
+### Un NAS, plusieurs endroits
+
+Deux schémas, et ils ne sont pas interchangeables :
+
+- **même partage, plusieurs réseaux** — un seul enregistrement, le 8e champ les liste :
+  `réseaux="Maison;ChezPapa"`. Le contrôle de MAC se fait sur le réseau où tu es, donc
+  le partage ne monte que là où le serveur est réellement.
+- **autre serveur, ou autre adresse** — un **enregistrement séparé avec son propre point
+  de montage** (`/media/NAS-papa`). Deux enregistrements ne doivent jamais partager un
+  point de montage : celui qui ne reconnaît pas le réseau démonterait le partage de
+  l'autre. Le questionnaire prévient quand il voit le conflit.
+
 ### Deux identités sur un partage CIFS
 
 Ce ne sont pas les mêmes, et les confondre est la façon dont un partage finit lisible par
@@ -315,8 +327,10 @@ serveur CIFS (`mount.cifs` n'est exercé qu'à travers un stub).
   serveur qui disparaît peut figer les accès aussi longtemps que durent les timeouts RPC.
   Les hooks démontent à la perte du réseau, le timer répare les montages morts, et les
   options des partages vous appartiennent.
-- Les noms d'interface sont globaux, pas par partage : une interface Wi-Fi et une
-  interface LAN par machine. Seule la liste des réseaux acceptés est par partage.
+- Les noms d'interface sont globaux (un Wi-Fi, un LAN par machine) ; la **liste des
+  réseaux acceptés est par partage**, donc le même NAS monte chez toi et chez ton père
+  avec un seul enregistrement : `réseaux="Maison;ChezPapa"`. Le questionnaire affiche
+  les SSID qu'il voit et propose celui du moment comme défaut.
 - `umount -f` (abandon des RPC en attente) n'est utilisé que sur NFS. Sur CIFS il n'a
   pas cet effet et peut échouer là où un démontage paresseux réussit ; c'est donc le
   repli paresseux qui s'applique.
