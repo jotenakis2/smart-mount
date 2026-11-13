@@ -9,9 +9,11 @@ CHOWN ?= chown
 RM ?= rm -f
 
 DISPATCHER_SCRIPTS := 98-eth-nfs-mac 99-wifi-nfs-mount
-BIN_SCRIPT := nfs-smartmount.sh
+BIN_SCRIPT := nas-smartmount.sh
+# Ancien nom, conservé un temps : unités, hooks et habitudes déjà déployés.
+LEGACY_LINK := nfs-smartmount.sh
 SYSTEMD_UNITS := nfs-network-check.service nfs-network-check.timer
-MANPAGE := nfs-smartmount.8
+MANPAGE := nas-smartmount.8
 POLICY := org.jotenakis.smartmount.policy
 SETUP_SCRIPT := setup.sh
 
@@ -43,24 +45,24 @@ deps:
 check:
 	test -f 98-eth-nfs-mac
 	test -f 99-wifi-nfs-mount
-	test -f nfs-smartmount.sh
+	test -f nas-smartmount.sh
 	test -f nfs-network-check.service
 	test -f nfs-network-check.timer
-	test -f nfs-smartmount.8
+	test -f nas-smartmount.8
 	test -f org.jotenakis.smartmount.policy
 	bash -n 98-eth-nfs-mac
 	bash -n 99-wifi-nfs-mount
-	bash -n nfs-smartmount.sh
+	bash -n nas-smartmount.sh
 	bash -n setup.sh
 	bash -n tests/run.sh
 	@if command -v shellcheck >/dev/null 2>&1; then \
 		shellcheck -x --severity=info --exclude=SC1091 \
-			98-eth-nfs-mac 99-wifi-nfs-mount nfs-smartmount.sh setup.sh tests/run.sh; \
+			98-eth-nfs-mac 99-wifi-nfs-mount nas-smartmount.sh setup.sh tests/run.sh; \
 	else \
 		printf '%s\n' "shellcheck absent : contrôle de style sauté"; \
 	fi
 	@if command -v groff >/dev/null 2>&1; then \
-		groff -man -Tutf8 -z nfs-smartmount.8; \
+		groff -man -Tutf8 -z nas-smartmount.8; \
 	else \
 		printf '%s\n' "groff absent : page de man non validée"; \
 	fi
@@ -76,7 +78,13 @@ install: deps check
 	$(INSTALL) -d -m 0755 "$(DESTDIR)$(MAN8_DIR)"
 	$(INSTALL) -d -m 0755 "$(DESTDIR)$(POLKIT_ACTIONS_DIR)"
 
-	$(INSTALL) -m 0700 $(DISPATCHER_SCRIPTS) "$(DESTDIR)$(NM_DISPATCHER_DIR)/"
+	# Les hooks et l'unité appellent le binaire par son chemin absolu : on le
+	# réécrit pour le BINDIR réel, sinon un paquet en /usr pointerait vers
+	# /usr/local/bin, où le binaire n'existe pas.
+	for hook in $(DISPATCHER_SCRIPTS); do \
+		sed 's|/usr/local/bin/|$(BINDIR)/|' "$$hook" > "$(DESTDIR)$(NM_DISPATCHER_DIR)/$$hook"; \
+		chmod 0700 "$(DESTDIR)$(NM_DISPATCHER_DIR)/$$hook"; \
+	done
 	$(CHOWN) root:root "$(DESTDIR)$(NM_DISPATCHER_DIR)/98-eth-nfs-mac"
 	$(CHOWN) root:root "$(DESTDIR)$(NM_DISPATCHER_DIR)/99-wifi-nfs-mount"
 
@@ -90,13 +98,17 @@ install: deps check
 	# L'action polkit est liée à un chemin absolu : on la réécrit pour le PREFIX
 	# réellement utilisé, sinon un paquet en /usr déclare une action pour un
 	# binaire qui n'existe pas à cet endroit.
-	sed 's|/usr/local/bin/nfs-smartmount.sh|$(BINDIR)/nfs-smartmount.sh|' $(POLICY) \
+	sed 's|/usr/local/bin/nas-smartmount.sh|$(BINDIR)/nas-smartmount.sh|' $(POLICY) \
 		> "$(DESTDIR)$(POLKIT_ACTIONS_DIR)/$(POLICY)"
 	chmod 0644 "$(DESTDIR)$(POLKIT_ACTIONS_DIR)/$(POLICY)"
 	$(CHOWN) root:root "$(DESTDIR)$(MAN8_DIR)/$(MANPAGE)"
 	$(CHOWN) root:root "$(DESTDIR)$(POLKIT_ACTIONS_DIR)/$(POLICY)"
 
-	$(INSTALL) -m 0644 $(SYSTEMD_UNITS) "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)/"
+	for unit in $(SYSTEMD_UNITS); do \
+		sed 's|/usr/local/bin/|$(BINDIR)/|' "$$unit" > "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)/$$unit"; \
+		chmod 0644 "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)/$$unit"; \
+	done
+	ln -sfn "$(BIN_SCRIPT)" "$(DESTDIR)$(BINDIR)/$(LEGACY_LINK)"
 	$(CHOWN) root:root "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)/nfs-network-check.service"
 	$(CHOWN) root:root "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)/nfs-network-check.timer"
 
@@ -128,6 +140,7 @@ uninstall:
 	$(RM) "$(DESTDIR)$(NM_DISPATCHER_DIR)/98-eth-nfs-mac"
 	$(RM) "$(DESTDIR)$(NM_DISPATCHER_DIR)/99-wifi-nfs-mount"
 	$(RM) "$(DESTDIR)$(BINDIR)/$(BIN_SCRIPT)"
+	$(RM) "$(DESTDIR)$(BINDIR)/$(LEGACY_LINK)"
 	$(RM) "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)/nfs-network-check.service"
 	$(RM) "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)/nfs-network-check.timer"
 	$(RM) "$(DESTDIR)$(BINDIR)/smart-mount-setup"

@@ -16,7 +16,7 @@ WIFI_IFACE="${WIFI_IFACE:-}"
 readonly DEVICE="${1:-}"
 readonly STATE="${2:-}"
 readonly SCRIPT_NAME="smartmount-wifi-nfs-NM_hook"
-readonly MAIN_SCRIPT="${SMARTMOUNT_MAIN:-/usr/local/bin/nfs-smartmount.sh}"
+readonly MAIN_SCRIPT="${SMARTMOUNT_MAIN:-/usr/local/bin/nas-smartmount.sh}"
 
 # `logger` est une dépendance molle : sans lui, on écrit sur stderr pour que le
 # hook (sous set -e) ne meure pas sur une commande absente.

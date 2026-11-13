@@ -1,17 +1,17 @@
 .TH NFS-SMARTMOUNT 8 "2026-11-13" "smart-mount 1.8" "Manuel d'administration système"
 .SH NOM
-nfs-smartmount \- monter des partages NFS et CIFS seulement sur le bon réseau,
+nas-smartmount \- monter des partages NFS et CIFS seulement sur le bon réseau,
 depuis le bon serveur
 .SH SYNOPSIS
-.B nfs-smartmount.sh
+.B nas-smartmount.sh
 .RB show " ["
 .B \-\-json
 .RB "]"
 .br
-.B nfs-smartmount.sh
+.B nas-smartmount.sh
 .RB { mount | unmount | apply | \-\-version | \-\-help }
 .SH DESCRIPTION
-.B nfs-smartmount.sh
+.B nas-smartmount.sh
 monte chaque partage configuré seulement quand la machine est sur un réseau où le
 serveur est joignable
 .I et
@@ -179,7 +179,7 @@ Définition des partages, lu en root.
 .I /etc/smart-mount/credentials-*
 Identifiants CIFS, mode 0600.
 .TP
-.I /usr/local/bin/nfs-smartmount.sh
+.I /usr/local/bin/nas-smartmount.sh
 Le programme.
 .TP
 .I /usr/local/bin/smart-mount-setup
@@ -196,7 +196,7 @@ Exécution périodique de la politique, toutes les 15 minutes.
 .TP
 .I /usr/local/share/polkit-1/actions/org.jotenakis.smartmount.policy
 Action polkit qui autorise
-.B pkexec nfs-smartmount.sh
+.B pkexec nas-smartmount.sh
 dans une session locale.
 .SH VARIABLES D'ENVIRONNEMENT
 .TP
@@ -250,7 +250,7 @@ Voir ce qui est monté, avec les options retenues pour chaque partage :
 .PP
 .RS
 .EX
-$ sudo nfs-smartmount.sh show
+$ sudo nas-smartmount.sh show
 TYPE  MOUNT POINT     SOURCE                             STATE             OPTIONS
 nfs   /media/NAS      192.168.50.85:/media/diskusb/data  mounted, healthy  nodev,nosuid,noexec
 cifs  /media/NAS-smb  //192.168.50.85/usbdisk_data       mounted, healthy  guest,uid=1000
@@ -261,7 +261,7 @@ Contrôler la politique sans rien toucher :
 .PP
 .RS
 .EX
-$ sudo SMARTMOUNT_DRY_RUN=1 nfs-smartmount.sh apply
+$ sudo SMARTMOUNT_DRY_RUN=1 nas-smartmount.sh apply
 .EE
 .RE
 .PP
@@ -269,7 +269,7 @@ Alimenter une interface graphique :
 .PP
 .RS
 .EX
-$ nfs-smartmount.sh show --json | jq '.shares[] | {mountpoint, state}'
+$ nas-smartmount.sh show --json | jq '.shares[] | {mountpoint, state}'
 .EE
 .RE
 .SH LIMITES

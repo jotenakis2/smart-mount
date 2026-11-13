@@ -7,4 +7,4 @@ ConditionPathExists=/etc/smart-mount/config
 [Service]
 Type=oneshot
 TimeoutStartSec=60
-ExecStart=/usr/local/bin/nfs-smartmount.sh apply
+ExecStart=/usr/local/bin/nas-smartmount.sh apply

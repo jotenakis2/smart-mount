@@ -3,13 +3,13 @@ post_install() {
 smart-mount est installé, mais aucun partage n'est configuré.
 
   1. lancer le questionnaire (il écrit /etc/smart-mount/config) :
-         sudo smart-mount-setup
+         sudo nas-smartmount.sh setup
 
   2. vérifier la décision sans rien monter :
-         sudo SMARTMOUNT_DRY_RUN=1 nfs-smartmount.sh apply
+         sudo SMARTMOUNT_DRY_RUN=1 nas-smartmount.sh apply
 
   3. voir l'état des montages :
-         sudo nfs-smartmount.sh show
+         sudo nas-smartmount.sh show
 
 Sans MAC cible, un partage ne monte jamais (code de sortie 4) : la MAC se lit
 avec `ip neigh show <IP_DU_SERVEUR>`, ou dans les baux DHCP de la box.

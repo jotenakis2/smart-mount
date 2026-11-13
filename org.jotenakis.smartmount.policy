@@ -3,7 +3,7 @@
  "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
  "http://www.freedesktop.org/software/polkit/policyconfig-1.dtd">
 <!--
-  Permet `pkexec /usr/local/bin/nfs-smartmount.sh {mount|unmount|apply}` à un
+  Permet `pkexec /usr/local/bin/nas-smartmount.sh {mount|unmount|apply}` à un
   utilisateur de session locale, au lieu d'un sudo qui exige un terminal.
 
   Ce n'est pas un contournement de privilège : la spécification montée vient de
@@ -25,6 +25,6 @@
       <allow_inactive>auth_admin</allow_inactive>
       <allow_active>auth_admin_keep</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/nfs-smartmount.sh</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/nas-smartmount.sh</annotate>
   </action>
 </policyconfig>

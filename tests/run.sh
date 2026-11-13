@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Non-regression tests for nfs-smartmount.sh.
+# Non-regression tests for nas-smartmount.sh.
 #
 # Nothing here touches the real system: every external command the script uses
 # (iw, nmcli, mountpoint, mount, umount, ping, stat, ls, logger) is a stub put
@@ -13,8 +13,13 @@
 
 set -uo pipefail
 
+# Les messages suivent la locale : la suite les fige en anglais pour rester
+# déterministe, et les cas qui testent le français la surchargent explicitement.
+export LC_ALL=C
+unset LANG LANGUAGE LC_MESSAGES || true
+
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-SCRIPT="${ROOT}/nfs-smartmount.sh"
+SCRIPT="${ROOT}/nas-smartmount.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf -- "${TMP}"' EXIT
 
@@ -870,8 +875,8 @@ out="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/absent" \
         bash "${SCRIPT}" --help 2>&1 )"
 rc=$?
 check "--help : code 0" 0 "${rc}"
-check "--help : décrit les verbes" oui "$(contains "${out}" 'nfs-smartmount.sh show')"
-check "--help : renvoie à la page de man" oui "$(contains "${out}" 'man 8 nfs-smartmount')"
+check "--help : décrit les verbes" oui "$(contains "${out}" 'nas-smartmount.sh show')"
+check "--help : renvoie à la page de man" oui "$(contains "${out}" 'man 8 nas-smartmount')"
 check "--help : ne lit pas la configuration" oui "$(lacks "${out}" 'Configuration missing')"
 
 new_case version_flag
@@ -910,6 +915,112 @@ else
     aligned=oui
 fi
 check "show : colonnes alignées avec un chemin accentué" oui "${aligned}"
+
+# 65-68. La langue des messages suit la locale ; les valeurs de --json, non.
+new_case lang_french_help
+out="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/absent" \
+        LC_ALL=fr_FR.UTF-8 bash "${SCRIPT}" --help 2>&1 )"
+check "locale fr : aide en français" oui "$(contains "${out}" 'Usage :')"
+check "locale fr : verbes décrits en français" oui "$(contains "${out}" 'montages actifs')"
+
+new_case lang_english_help
+out="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/absent" \
+        LC_ALL=C.UTF-8 bash "${SCRIPT}" --help 2>&1 )"
+check "locale en : aide en anglais" oui "$(contains "${out}" 'Usage:')"
+
+new_case lang_french_log
+set_neighbor aa:bb:cc:dd:ee:ff
+rc="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
+        SMARTMOUNT_DEPS="" LC_ALL=fr_FR.UTF-8 bash "${SCRIPT}" apply >/dev/null 2>&1; echo $? )"
+check "locale fr : code 0" 0 "${rc}"
+check "locale fr : journal en français" oui "$(called 'montage attendu')"
+
+new_case lang_french_show
+set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,rsize=1"
+write_config
+out="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
+        SMARTMOUNT_DEPS="" LC_ALL=fr_FR.UTF-8 bash "${SCRIPT}" show 2>/dev/null )"
+check "locale fr : en-tête traduit" oui "$(contains "${out}" 'POINT DE MONTAGE')"
+check "locale fr : état traduit" oui "$(contains "${out}" 'monté, sain')"
+
+new_case lang_json_stable
+set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,rsize=1"
+write_config
+out="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
+        SMARTMOUNT_DEPS="" LC_ALL=fr_FR.UTF-8 bash "${SCRIPT}" show --json 2>/dev/null )"
+check "--json : état non traduit" oui "$(contains "${out}" '"state": "mounted, healthy"')"
+check "--json : pas de traduction française" oui "$(lacks "${out}" 'monté')"
+
+new_case lang_override
+out="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/absent" \
+        LC_ALL=fr_FR.UTF-8 SMARTMOUNT_LANG=en bash "${SCRIPT}" --help 2>&1 )"
+check "SMARTMOUNT_LANG=en prime sur la locale" oui "$(contains "${out}" 'Usage:')"
+
+# 69-72. `setup` : le questionnaire vit dans le script principal, et les fonctions
+# fstab — les seules qui écrivent dans un fichier système — sont enfin couvertes.
+new_case setup_requires_root
+stub id 'printf "1000\n"'
+rc="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
+        bash "${SCRIPT}" setup >/dev/null 2>&1; echo $? )"
+check "setup : refus sans root (code 1)" 1 "${rc}"
+check "setup : message explicite" oui "$(called 'requires root')"
+
+new_case setup_needs_whiptail
+stub id 'printf "0\n"'
+bash_bin="$(command -v bash)"
+out="$( PATH="${CASE_DIR}/bin" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
+        "${bash_bin}" "${SCRIPT}" setup 2>&1 )"
+rc=$?
+check "setup : code 1 sans whiptail" 1 "${rc}"
+check "setup : nomme la commande manquante" oui "$(contains "${out}" 'whiptail')"
+
+new_case fstab_lookup_hit
+printf '192.168.1.10:/share  /mnt/nfs  nfs4  rw,noauto  0 0\n' > "${CASE_DIR}/fstab"
+out="$( SMARTMOUNT_FSTAB="${CASE_DIR}/fstab" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
+        PATH="${CASE_DIR}/bin:${PATH}" bash -c \
+        'source "$1" >/dev/null 2>&1; fstab_lookup nfs 192.168.1.10 /share' _ "${SCRIPT}" )"
+check "fstab : point de montage par défaut" oui "$(contains "${out}" '/mnt/nfs')"
+check "fstab : options par défaut" oui "$(contains "${out}" 'rw,noauto')"
+
+new_case fstab_rewrite_noauto
+printf '# commentaire\n192.168.1.10:/share  /mnt/nfs  nfs4  rw,relatime,x-systemd.automount  0 0\n192.168.1.20:/autre  /mnt/autre  nfs4  rw  0 0\n' > "${CASE_DIR}/fstab"
+stub whiptail 'printf "whiptail %s\n" "$*" >> "$CALLS"; exit 0'
+cat > "${CASE_DIR}/driver.sh" <<'DRV'
+#!/usr/bin/env bash
+records=("$@")
+script="${records[0]}"
+records=("${records[@]:1}")
+set --
+# shellcheck disable=SC1090
+source "${script}" >/dev/null 2>&1
+SHARES=("${records[@]}")
+rewrite_fstab
+DRV
+chmod +x "${CASE_DIR}/driver.sh"
+PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_FSTAB="${CASE_DIR}/fstab" \
+    SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
+    bash "${CASE_DIR}/driver.sh" "${SCRIPT}" \
+    "nfs|192.168.1.10|/share|/mnt/nfs|nodev|aa:bb:cc:dd:ee:ff|" >/dev/null 2>&1
+fstab_now="$(cat "${CASE_DIR}/fstab")"
+backups="$(find "${CASE_DIR}" -maxdepth 1 -name 'fstab.smart-mount.bak.*' | wc -l | tr -d ' ')"
+check "fstab : noauto ajouté" oui "$(contains "${fstab_now}" 'rw,relatime,noauto')"
+check "fstab : automount retiré" oui "$(lacks "${fstab_now}" 'x-systemd.automount')"
+check "fstab : entrée non concernée intacte" oui "$(contains "${fstab_now}" '192.168.1.20:/autre  /mnt/autre  nfs4  rw')"
+check "fstab : commentaire conservé" oui "$(contains "${fstab_now}" '# commentaire')"
+check "fstab : une seule sauvegarde" 1 "${backups}"
+
+new_case fstab_rewrite_untouched
+printf '192.168.1.99:/autre  /mnt/autre  nfs4  rw  0 0\n' > "${CASE_DIR}/fstab"
+before="$(cat "${CASE_DIR}/fstab")"
+stub whiptail 'printf "whiptail %s\n" "$*" >> "$CALLS"; exit 0'
+PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_FSTAB="${CASE_DIR}/fstab" \
+    SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
+    bash "${CASE_DIR}/driver.sh" "${SCRIPT}" \
+    "nfs|192.168.1.10|/share|/mnt/nfs|nodev|aa:bb:cc:dd:ee:ff|" >/dev/null 2>&1
+after="$(cat "${CASE_DIR}/fstab")"
+backups="$(find "${CASE_DIR}" -maxdepth 1 -name 'fstab.smart-mount.bak.*' | wc -l | tr -d ' ')"
+check "fstab : aucune correspondance, fichier intact" oui "$(contains "${after}" "${before}")"
+check "fstab : aucune sauvegarde inutile" 0 "${backups}"
 
 # ---------------------------------------------------------------- summary
 

@@ -17,7 +17,7 @@ LAN_IFACE="${LAN_IFACE:-}"
 readonly DEVICE="${1:-}"
 readonly STATE="${2:-}"
 readonly SCRIPT_NAME="smartmount-eth-nfs-NM_hook"
-readonly MAIN_SCRIPT="${SMARTMOUNT_MAIN:-/usr/local/bin/nfs-smartmount.sh}"
+readonly MAIN_SCRIPT="${SMARTMOUNT_MAIN:-/usr/local/bin/nas-smartmount.sh}"
 
 log_info() {
     if command -v logger >/dev/null 2>&1; then
