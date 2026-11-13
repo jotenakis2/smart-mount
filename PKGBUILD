@@ -13,10 +13,12 @@ optdepends=('cifs-utils: share of type cifs'
             'iw: reliable SSID detection (falls back to nmcli)')
 provides=('smart-mount')
 conflicts=('smart-mount-git')
-backup=('/etc/smart-mount/config')
+# Pas de `backup=('/etc/smart-mount/config')` : le fichier n'est pas dans le paquet
+# (il est écrit par smart-mount-setup), et pacman n'applique le mécanisme de
+# sauvegarde qu'aux fichiers qu'il a lui-même installés.
 install="$pkgname.install"
 source=("$url/archive/v$pkgver/$pkgname-$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('1b290533e113ad1b2e831d14653a011dbfb406f536aa861a14e36e2d27c2d885')
 
 package() {
     cd "$pkgname-$pkgver"

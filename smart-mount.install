@@ -29,8 +29,8 @@ post_upgrade() {
 pre_remove() {
     systemctl disable --now nfs-network-check.timer 2>/dev/null || true
     cat <<'EOF'
-Le fichier /etc/smart-mount/config et les fichiers d'identifiants CIFS sont
-laissés en place (marqués comme sauvegarde) : supprimez-les à la main si vous
-voulez repartir de zéro.
+Le fichier /etc/smart-mount/config et les fichiers d'identifiants CIFS ne
+appartiennent pas au paquet : ils sont laissés en place. Supprimez-les à la main
+si vous voulez repartir de zéro.
 EOF
 }
