@@ -1,6 +1,6 @@
 # Maintainer: Olivier Lorillu <contact@jotenakis.ovh>
 pkgname=smart-mount
-pkgver=1.11
+pkgver=1.11.1
 pkgrel=1
 pkgdesc="Mount NFS and CIFS shares only when the right network and the right server are
 present, and keep them healthy"

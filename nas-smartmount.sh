@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.11
+VER=1.11.1
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -1097,7 +1097,7 @@ setup_main() {
     find_active_lan_defaults
     find_lan_iface_fallback
 
-    whiptail --title "$(msg ws_intro)" 14 78 || true
+    whiptail --title "smart-mount setup" --msgbox "$(msg ws_intro)" 14 78 || true
 
     COUNT="$(ask_count)"
     SHARES=()

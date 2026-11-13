@@ -1038,6 +1038,49 @@ new_case safe_opts_complete
 out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_safe_opts "nodev,nosuid,noexec,uid=1000"' _ "${SCRIPT}" 2>/dev/null )"
 check "options complètes : inchangées" "nodev,nosuid,noexec,uid=1000" "${out}"
 
+# 81. Le questionnaire, exercé de bout en bout avec un whiptail simulé : c'est ce
+# qui aurait attrapé un appel malformé (whiptail --title sans option de boîte
+# affiche son propre mode d'emploi au lieu de la fenêtre).
+new_case setup_runs_end_to_end
+cat > "${CASE_DIR}/bin/whiptail" <<'STUB'
+#!/bin/sh
+printf 'WHIPTAIL: %s\n' "$*" >> "${CALLS}"
+# Une réponse par type de boîte : whiptail écrit sur le descripteur 3.
+case "$*" in
+    *--msgbox*|*--yesno*|*--infobox*) printf 'window\n' >&2; exit 0 ;;
+    *--menu*)                         printf 'nfs\n' >&3; exit 0 ;;
+    *--inputbox*|*--passwordbox*)     printf '1\n' >&3; exit 0 ;;
+esac
+STUB
+chmod +x "${CASE_DIR}/bin/whiptail"
+stub id 'printf "0\n"'
+: > "${CASE_DIR}/fstab"
+printf '#!/bin/sh\nexit 0\n' > "${CASE_DIR}/bin/nmcli"; chmod +x "${CASE_DIR}/bin/nmcli"
+out="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
+        SMARTMOUNT_FSTAB="${CASE_DIR}/fstab" SMARTMOUNT_LANG=en \
+        bash "${SCRIPT}" setup 2>&1 )"
+rc=$?
+calls="$(cat "${CALLS}")"
+check "questionnaire : code 0" 0 "${rc}"
+check "questionnaire : configuration écrite" 1 "$([[ -f "${CASE_DIR}/config" ]] && echo 1 || echo 0)"
+check "questionnaire : drapeaux durcis proposés" oui "$(contains "${calls}" 'nodev,nosuid,noexec')"
+# Toute invocation doit porter une option de boîte en premier argument utile.
+bad=0
+while IFS= read -r line; do
+    case "${line}" in
+        'WHIPTAIL:'*)
+            case "${line}" in
+                *--msgbox*|*--yesno*|*--infobox*|*--inputbox*|*--passwordbox*|*--menu*) : ;;
+                *) bad=$(( bad + 1 )) ;;
+            esac
+            ;;
+    esac
+done <<< "${calls}"
+check "questionnaire : aucun appel whiptail malformé" 0 "${bad}"
+# Les fenêtres vont sur stderr : rien du questionnaire ne doit atterrir sur stdout,
+# qui est capturé par les appelants.
+check "questionnaire : rien sur stdout" oui "$(lacks "${out}" 'WHIPTAIL:')"
+
 # ---------------------------------------------------------------- summary
 
 printf '\n%d test(s) ok, %d échec(s)\n' "${PASS}" "${FAIL}"
