@@ -28,7 +28,7 @@ actifs (portable docké, Wi-Fi sur un autre réseau…).
 ## Comportement
 
 ```
-nfs-smartmount.sh {show [--json]|mount|unmount|apply|--help}
+nfs-smartmount.sh {show [--json]|mount|unmount|apply|--version|--help}
 ```
 
 Pour chaque partage configuré, indépendamment :
@@ -72,6 +72,8 @@ les autres partages ne sont pas affectés.
   `addr`, `sec`, `proto`…), qui change à chaque fois et noie l'information utile.
   Il fonctionne aussi sans root : la configuration est alors illisible, seuls les
   montages réels sont listés, avec une note.
+- **`--version`** : une ligne, `smart-mount 1.9`, sans lire la configuration — la
+  ligne à coller dans un rapport de bug.
 - **`--help`** : aide courte en français, avec le format de configuration et les codes
   de sortie. C'est volontaire : journal, erreurs et sortie de `show` sont en anglais
   (ces lignes finissent dans un rapport de bug), alors que l'aide, la page de man et

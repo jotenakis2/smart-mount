@@ -28,7 +28,7 @@ another network, …).
 ## Behaviour
 
 ```
-nfs-smartmount.sh {show [--json]|mount|unmount|apply|--help}
+nfs-smartmount.sh {show [--json]|mount|unmount|apply|--version|--help}
 ```
 
 For each configured share, independently:
@@ -71,6 +71,8 @@ shares are unaffected.
   which changes on every mount and buries the useful part.
   It also works without root: the configuration is then unreadable, so only the real
   mounts are listed, with a note.
+- **`--version`**: one line, `smart-mount 1.9`, and it does not read the
+  configuration — the line to paste into a bug report.
 - **`--help`**: short French help with the configuration format and the exit codes.
   That is deliberate: logs, errors and `show` output are in English (they end up in
   bug reports), while the help, the man page and this documentation are for the human

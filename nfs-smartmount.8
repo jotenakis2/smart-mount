@@ -9,7 +9,7 @@ depuis le bon serveur
 .RB "]"
 .br
 .B nfs-smartmount.sh
-.RB { mount | unmount | apply | \-\-help }
+.RB { mount | unmount | apply | \-\-version | \-\-help }
 .SH DESCRIPTION
 .B nfs-smartmount.sh
 monte chaque partage configuré seulement quand la machine est sur un réseau où le
@@ -83,6 +83,11 @@ Monte les partages légitimement joignables ; ne démonte jamais rien.
 .TP
 .B unmount
 Démonte tous les points de montage configurés.
+.TP
+.B \-\-version
+Affiche le numéro de version sur une seule ligne
+.RI ( "smart-mount " version ),
+sans lire la configuration : c'est la ligne à joindre à un rapport de bug.
 .TP
 .B \-\-help
 Affiche l'aide courte, le format de configuration et les codes de sortie.
