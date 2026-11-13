@@ -148,7 +148,10 @@ SHARES=(
 - **options**: passed as `-o` to `mount` (empty is allowed). `nodev`, `nosuid` and
   `noexec` are enforced by the kernel on NFS as well as CIFS; `noatime` and `lazytime`
   are **ignored by `mount.cifs`** (the mount stays in `relatime`) — CIFS has its own
-  options: `vers=`, `iocharset=`, `uid=`, `gid=`, `file_mode=`, `dir_mode=`;
+  options: `vers=`, `iocharset=`, `uid=`, `gid=`, `file_mode=`, `dir_mode=`.
+  The wizard proposes adding `nodev,nosuid,noexec` when your line lacks them, and
+  asks first: a network share that allows execution or setuid binaries is a risk
+  nobody has a reason to accept by default;
 - **mac**: the server's MAC address — without it the share is never mounted;
 - **credentials**: CIFS only, path to a credentials file (empty otherwise).
 - **networks** (optional): where this share may mount, separated by `;` or `,`.

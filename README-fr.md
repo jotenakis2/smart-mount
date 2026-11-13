@@ -152,6 +152,9 @@ SHARES=(
   `noexec` sont appliqués par le noyau, en NFS comme en CIFS ; `noatime` et `lazytime`
   sont **ignorés par `mount.cifs`** (le montage reste en `relatime`) — côté CIFS, les
   options utiles sont `vers=`, `iocharset=`, `uid=`, `gid=`, `file_mode=`, `dir_mode=` ;
+  le questionnaire propose d'ajouter `nodev,nosuid,noexec` quand ta ligne ne les a pas,
+  et demande avant : un partage réseau qui autorise l'exécution ou les binaires setuid
+  est un risque qu'on n'a aucune raison d'accepter par défaut ;
 - **mac** : l'adresse MAC du serveur — sans elle, le partage n'est jamais monté ;
 - **identifiants** : CIFS uniquement, chemin du fichier d'identifiants (vide sinon) ;
 - **réseaux** (facultatif) : où ce partage peut monter, séparés par `;` ou `,`.
