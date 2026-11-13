@@ -1112,6 +1112,7 @@ printf 'WHIPTAIL: %s\n' "$*" >> "${CALLS}"
 case "$*" in
     *--menu*)                         printf 'cifs\n' >&3; exit 0 ;;
     *uid:gid*)                        printf '1000:1000\n' >&3; exit 0 ;;
+    *file_mode:dir_mode*)             printf '0644:0755\n' >&3; exit 0 ;;
     *--inputbox*|*--passwordbox*)     printf '1\n' >&3; exit 0 ;;
     *--msgbox*|*--yesno*|*--infobox*) printf 'window\n' >&2; exit 0 ;;
 esac
@@ -1128,6 +1129,20 @@ check "questionnaire cifs : code 0" 0 "${rc}"
 check "questionnaire cifs : enregistrement cifs" oui "$(contains "${cfg}" 'cifs|')"
 check "questionnaire cifs : uid/gid dans les options" oui "$(contains "${cfg}" 'uid=1000,gid=1000')"
 check "questionnaire cifs : identifiants dans un fichier à part" oui "$(contains "${cfg}" 'credentials-1')"
+check "questionnaire cifs : permissions écrites" oui "$(contains "${cfg}" 'file_mode=0644,dir_mode=0755')"
+
+# 87-89. Permissions des fichiers montés : complétées comme le reste, sans doublon.
+new_case modes_added
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_mode_opts "guest,vers=3.0" 0644:0755' _ "${SCRIPT}" 2>/dev/null )"
+check "modes : ajoutés" "guest,vers=3.0,file_mode=0644,dir_mode=0755" "${out}"
+
+new_case modes_present
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_mode_opts "file_mode=0600,dir_mode=0700" 0644:0755' _ "${SCRIPT}" 2>/dev/null )"
+check "modes : aucun doublon" "file_mode=0600,dir_mode=0700" "${out}"
+
+new_case modes_invalid
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_mode_opts "guest" nawak' _ "${SCRIPT}" 2>/dev/null )"
+check "modes : saisie invalide ignorée" "guest" "${out}"
 
 # ---------------------------------------------------------------- summary
 

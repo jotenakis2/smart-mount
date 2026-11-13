@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.12
+VER=1.13
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -113,8 +113,10 @@ msg() {
             ws_opts)              text='Options de montage' ;;
             ws_mac)               text='Adresse MAC de %s (obligatoire : sans elle, aucun montage)' ;;
             ws_mac_missing)       text='Aucune adresse MAC détectée pour %s.\n\nLe serveur n'"'"'a pas répondu : impossible de lire sa MAC. Ce partage ne sera PAS monté\ntant qu'"'"'aucune MAC cible n'"'"'est configurée, en Wi-Fi comme en Ethernet.\n\nPour la trouver :\n  - quand le serveur est joignable :  ip neigh show %s\n  - ou dans l'"'"'interface d'"'"'administration du NAS, ou les baux DHCP de la box\n\nRenseignez ensuite le 6e champ de ce partage dans /etc/smart-mount/config\n(ou relancez : sudo nas-smartmount.sh setup).' ;;
-            ws_nets)              text='Réseaux autorisés, séparés par ; (vide = le SSID global, * = indifférent)' ;;
+            ws_nets)              text='Réseaux autorisés, séparés par ; (vide = le SSID global, * = indifférent). Vus à l instant : %s' ;;
             ws_owner)             text='Propriétaire local des fichiers montés (uid:gid) — le compte SMB ci-dessous est une autre identité, celle qui s authentifie' ;;
+            ws_modes)             text='Permissions des fichiers et des dossiers (file_mode:dir_mode, octal)' ;;
+            ws_conflict)          text='Deux partages utilisent le même point de montage : %s\n\nCelui qui ne reconnaît pas le réseau démonterait le partage de l autre.\nDonne un point de montage distinct à chacun.' ;;
             ws_harden_opts)       text='Ajouter les protections nodev,nosuid,noexec ?\n\nSaisi  : %s\nProposé : %s\n\nCe sont des drapeaux du noyau, valables en NFS comme en CIFS : sans eux, un\npartage réseau peut servir à exécuter un binaire ou à monter un fichier setuid.' ;;
             ws_saved)             text='Configuration enregistrée dans %s' ;;
             ws_saved_backup)      text='Configuration enregistrée dans %s\n\nPrécédente configuration conservée dans :\n%s' ;;
@@ -200,8 +202,10 @@ msg() {
             ws_opts)              text='Mount options' ;;
             ws_mac)               text='MAC address of %s (mandatory: without it the share is never mounted)' ;;
             ws_mac_missing)       text='No MAC address detected for %s.\n\nThe server did not answer: its MAC address cannot be read. This share will NOT\nbe mounted until a target MAC is configured, over Wi-Fi as well as Ethernet.\n\nTo find it:\n  - while the server is reachable:  ip neigh show %s\n  - or in the NAS administration interface, or in the router'"'"'s DHCP leases\n\nThen fill in the 6th field of that share in /etc/smart-mount/config\n(or re-run: sudo nas-smartmount.sh setup).' ;;
-            ws_nets)              text='Accepted networks, separated by ; (empty = the global SSID, * = any)' ;;
+            ws_nets)              text='Accepted networks, separated by ; (empty = the global SSID, * = any). Seen right now: %s' ;;
             ws_owner)             text='Local owner of the mounted files (uid:gid) — the SMB account below is a different identity, the one that authenticates' ;;
+            ws_modes)             text='File and directory permissions (file_mode:dir_mode, octal)' ;;
+            ws_conflict)          text='Two shares use the same mount point: %s\n\nThe one that does not recognise the network would unmount the other share.\nGive each of them its own mount point.' ;;
             ws_harden_opts)       text='Add the nodev,nosuid,noexec protections?\n\nEntered  : %s\nProposed : %s\n\nThese are kernel flags, valid for NFS as well as CIFS: without them a network\nshare can be used to run a binary or to mount a setuid file.' ;;
             ws_saved)             text='Configuration written to %s' ;;
             ws_saved_backup)      text='Configuration written to %s\n\nPrevious configuration kept in:\n%s' ;;
@@ -1112,6 +1116,7 @@ setup_main() {
     WIFI_IFACE="$(ask_input "$(msg ws_network)" "$(msg ws_wifi_iface)" "${DEFAULT_WIFI_IFACE}")"
     LAN_IFACE="$(ask_input "$(msg ws_network)" "$(msg ws_lan_iface)" "${DEFAULT_LAN_IFACE}")"
 
+    warn_mount_conflicts
     write_config
     rewrite_fstab
 }
@@ -1314,6 +1319,29 @@ ensure_owner_opts() { # ensure_owner_opts <options> <uid:gid>
     printf '%s' "${opts}"
 }
 
+# file_mode/dir_mode décident des permissions vues une fois monté. Les défauts de
+# mount.cifs (0755/0755) ne laissent rien au groupe ; on les propose explicitement.
+ensure_mode_opts() { # ensure_mode_opts <options> <file_mode:dir_mode>
+    local opts="${1:-}"
+    local modes="${2:-}"
+    local fm='' dm=''
+
+    [[ "${modes}" =~ ^[0-7]{3,4}:[0-7]{3,4}$ ]] || { printf '%s' "${opts}"; return 0; }
+    fm="${modes%%:*}"
+    dm="${modes##*:}"
+
+    case ",${opts}," in
+        *",file_mode="*) : ;;
+        *) opts="${opts:+${opts},}file_mode=${fm}" ;;
+    esac
+    case ",${opts}," in
+        *",dir_mode="*) : ;;
+        *) opts="${opts:+${opts},}dir_mode=${dm}" ;;
+    esac
+
+    printf '%s' "${opts}"
+}
+
 # uid:gid de l'humain qui a lancé sudo ou pkexec, sinon celui du shell.
 current_owner() {
     local uid="${SUDO_UID:-${PKEXEC_UID:-}}" gid=''
@@ -1321,6 +1349,38 @@ current_owner() {
     [[ -n "${uid}" ]] || uid="$(id -u)"
     gid="$(id -g "${uid}" 2>/dev/null || printf '%s' "${uid}")"
     printf '%s:%s' "${uid}" "${gid}"
+}
+
+# SSID actuellement visibles, pour que la question des réseaux ne demande pas de
+# deviner l'orthographe exacte. Best effort : nmcli peut ne rien renvoyer.
+available_ssids() {
+    local iface="${DEFAULT_WIFI_IFACE:-wlan0}"
+    local out=''
+
+    if command -v nmcli >/dev/null 2>&1; then
+        out="$(LC_ALL=C nmcli -t -f SSID device wifi list ifname "${iface}" 2>/dev/null \
+            | awk 'NF' | sort -u | head -8 | paste -sd';' -)" || true
+    fi
+    printf '%s' "${out}"
+}
+
+# Deux enregistrements sur le même point de montage se disputent le montage : celui
+# qui ne reconnaît pas le réseau démonterait le partage de l'autre.
+warn_mount_conflicts() {
+    local share='' mount='' other=''
+    local -a seen=()
+
+    for share in "${SHARES[@]}"; do
+        mount="$(printf '%s' "${share}" | cut -d'|' -f4)"
+        for other in "${seen[@]}"; do
+            if [[ "${other}" == "${mount}" ]]; then
+                whiptail --title "smart-mount setup" --msgbox \
+                    "$(msg ws_conflict "${mount}")" 12 78 || true
+                return 0
+            fi
+        done
+        seen+=("${mount}")
+    done
 }
 
 ask_yesno() { # ask_yesno <titre> <question> -> 0 si oui
@@ -1423,7 +1483,7 @@ ask_cifs_creds() { # ask_cifs_creds <numéro> <serveur> ; -> chemin du fichier o
 
 ask_share() { # ask_share <numéro> -> "type|serveur|partage|point|options|mac|creds"
     local num="$1"
-    local type server path mount opts mac creds='' safe_opts='' owner=''
+    local type server path mount opts mac creds='' safe_opts='' owner='' modes=''
     local default_server='' defaults='' mount_default='' opts_default=''
 
     type="$(ask_menu "$(msg ws_share_title "${num}")" "$(msg ws_type "${num}")" \
@@ -1470,6 +1530,8 @@ ask_share() { # ask_share <numéro> -> "type|serveur|partage|point|options|mac|c
         # Propriétaire local des fichiers montés : sans uid=, tout appartient à root.
         owner="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_owner)" "$(current_owner)")"
         opts="$(ensure_owner_opts "${opts}" "${owner}")"
+        modes="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_modes)" "0644:0755")"
+        opts="$(ensure_mode_opts "${opts}" "${modes}")"
         creds="$(ask_cifs_creds "${num}" "${server}")"
     fi
 
@@ -1482,7 +1544,11 @@ ask_share() { # ask_share <numéro> -> "type|serveur|partage|point|options|mac|c
 
     # 8e champ : réseaux autorisés pour CE partage. Vide = le SSID global, ce qui
     # reproduit exactement le comportement d'avant.
-    nets="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_nets)" "")"
+    # Un partage peut être joignable depuis plusieurs réseaux : chez soi, chez un
+    # proche, au bureau. Le SSID courant sert de défaut, la liste des SSID visibles de
+    # rappel, et `;` sépare — on évite ainsi d'avoir à deviner l'orthographe.
+    nets="$(ask_input "$(msg ws_share_title "${num}")" \
+        "$(msg ws_nets "$(available_ssids)")" "${DEFAULT_WIFI_NAME}")"
 
     printf '%s|%s|%s|%s|%s|%s|%s|%s' "${type}" "${server}" "${path}" "${mount}" "${opts}" "${mac}" "${creds}" "${nets}"
 }
