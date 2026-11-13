@@ -874,6 +874,22 @@ check "--help : décrit les verbes" oui "$(contains "${out}" 'nfs-smartmount.sh 
 check "--help : renvoie à la page de man" oui "$(contains "${out}" 'man 8 nfs-smartmount')"
 check "--help : ne lit pas la configuration" oui "$(lacks "${out}" 'Configuration missing')"
 
+new_case version_flag
+expected_version="$(sed -n 's/^VER=//p' "${SCRIPT}")"
+out="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/absent" \
+        bash "${SCRIPT}" --version 2>&1 )"
+rc=$?
+check "--version : code 0" 0 "${rc}"
+check "--version : une seule ligne" 1 "$(printf '%s\n' "${out}" | wc -l | tr -d ' ')"
+check "--version : nom et version" oui "$(contains "${out}" "smart-mount ${expected_version}")"
+check "--version : ne lit pas la configuration" oui "$(lacks "${out}" 'Configuration missing')"
+
+new_case version_short_flag
+expected_version="$(sed -n 's/^VER=//p' "${SCRIPT}")"
+out="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/absent" \
+        bash "${SCRIPT}" -V 2>&1 )"
+check "-V : même sortie" oui "$(contains "${out}" "smart-mount ${expected_version}")"
+
 new_case show_alignment_accented
 set_mount_table "${CASE_DIR}/Montréal 192.168.1.10:/share nfs4 rw,rsize=1" \
                 "${CASE_DIR}/mnt2 //192.168.1.30/public cifs rw,rsize=1"

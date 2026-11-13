@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.8
+VER=1.9
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -67,7 +67,7 @@ trap_err() {
     case "${exit_code}" in
         1)   str="Error mounting a share (see the log lines above)";;
         2)   str="Error unmounting a mount point (see the log lines above)";;
-        3)   str="${SCRIPT_NAME} syntax error - valid usage is : ${SCRIPT_NAME} {show [--json]|mount|unmount|apply}" ;;
+        3)   str="${SCRIPT_NAME} syntax error - valid usage is : ${SCRIPT_NAME} {show [--json]|mount|unmount|apply|--version|--help}" ;;
         4)   str="No target MAC for a share: refusing to mount (see the log above)";;
         5)   str="Missing dependency: ${MISSING_DEPS} — see README, Requirements";;
         122) str="Configuration missing or without any share (${CONFIG})";;
@@ -91,6 +91,7 @@ Usage :
   nfs-smartmount.sh apply           applique la politique à tous les partages
   nfs-smartmount.sh mount           monte ce qui est légitime, ne démonte jamais
   nfs-smartmount.sh unmount         démonte tous les points de montage configurés
+  nfs-smartmount.sh --version       numéro de version (une ligne)
   nfs-smartmount.sh --help          ce texte
 
 Configuration : /etc/smart-mount/config (root, 0640)
@@ -815,6 +816,7 @@ main() {
 
     case "${action}" in
         -h|--help) help_text; return 0 ;;
+        -V|--version) printf 'smart-mount %s\n' "${VER}"; return 0 ;;
         show)
             case "${2:-}" in
                 '')     show_mounts table ;;
