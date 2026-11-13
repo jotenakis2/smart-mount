@@ -148,7 +148,10 @@ SHARES=(
 - **type** : `nfs` ou `cifs` ;
 - **serveur** : adresse IP (ou nom d'hôte) du serveur ;
 - **partage** : le chemin exporté en NFS, le nom du partage en CIFS ;
-- **options** : passées en `-o` à `mount` (vide autorisé) ;
+- **options** : passées en `-o` à `mount` (vide autorisé). `nodev`, `nosuid` et
+  `noexec` sont appliqués par le noyau, en NFS comme en CIFS ; `noatime` et `lazytime`
+  sont **ignorés par `mount.cifs`** (le montage reste en `relatime`) — côté CIFS, les
+  options utiles sont `vers=`, `iocharset=`, `uid=`, `gid=`, `file_mode=`, `dir_mode=` ;
 - **mac** : l'adresse MAC du serveur — sans elle, le partage n'est jamais monté ;
 - **identifiants** : CIFS uniquement, chemin du fichier d'identifiants (vide sinon) ;
 - **réseaux** (facultatif) : où ce partage peut monter, séparés par `;` ou `,`.

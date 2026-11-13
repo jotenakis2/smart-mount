@@ -114,6 +114,24 @@ Passées en
 .BR mount (8).
 Affichées par
 .BR show .
+Sur NFS comme sur CIFS,
+.BR nodev ,
+.B nosuid
+et
+.B noexec
+sont appliqués par le noyau. En revanche
+.B noatime
+et
+.B lazytime
+sont ignorés par mount.cifs : le montage reste en
+.BR relatime .
+CIFS a ses propres options utiles :
+.BR vers= ,
+.BR iocharset= ,
+.BR uid= ,
+.BR gid= ,
+.BR file_mode= ,
+.BR dir_mode= .
 .TP
 .I mac
 Adresse MAC du serveur.

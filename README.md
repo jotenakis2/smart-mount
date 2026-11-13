@@ -145,7 +145,10 @@ SHARES=(
 - **type**: `nfs` or `cifs`;
 - **server**: IP address (or hostname) of the server;
 - **share**: the exported path for NFS, the share name for CIFS;
-- **options**: passed as `-o` to `mount` (empty is allowed);
+- **options**: passed as `-o` to `mount` (empty is allowed). `nodev`, `nosuid` and
+  `noexec` are enforced by the kernel on NFS as well as CIFS; `noatime` and `lazytime`
+  are **ignored by `mount.cifs`** (the mount stays in `relatime`) — CIFS has its own
+  options: `vers=`, `iocharset=`, `uid=`, `gid=`, `file_mode=`, `dir_mode=`;
 - **mac**: the server's MAC address — without it the share is never mounted;
 - **credentials**: CIFS only, path to a credentials file (empty otherwise).
 - **networks** (optional): where this share may mount, separated by `;` or `,`.
