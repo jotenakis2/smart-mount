@@ -706,14 +706,16 @@ write_config
 out="$(run_show)"
 check "show : montage muet signalé" oui "$(contains "${out}" 'monté, MUET')"
 
+# Chemin de configuration inutilisable : un répertoire. Déterministe, alors
+# qu'un chmod 000 serait sans effet quand la suite tourne en root.
 new_case show_config_unreadable
 set_mount_table "/media/NAS 192.168.1.10:/share nfs4 rw,nodev"
-write_config
-chmod 000 "${CASE_DIR}/config"
+rm -f "${CASE_DIR}/config"
+mkdir -p "${CASE_DIR}/config"
 out="$(run_show)"
 check "show : montages réels affichés sans config" oui "$(contains "${out}" '/media/NAS')"
 check "show : note sur la config illisible" oui "$(contains "${out}" 'Configuration illisible')"
-chmod 600 "${CASE_DIR}/config"
+rmdir "${CASE_DIR}/config"
 
 # ---------------------------------------------------------------- summary
 
