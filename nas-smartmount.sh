@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.16
+VER=1.17
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -114,6 +114,8 @@ msg() {
             ws_mac)               text='Adresse MAC de %s (obligatoire : sans elle, aucun montage)' ;;
             ws_mac_missing)       text='Aucune adresse MAC détectée pour %s.\n\nLe serveur n'"'"'a pas répondu : impossible de lire sa MAC. Ce partage ne sera PAS monté\ntant qu'"'"'aucune MAC cible n'"'"'est configurée, en Wi-Fi comme en Ethernet.\n\nPour la trouver :\n  - quand le serveur est joignable :  ip neigh show %s\n  - ou dans l'"'"'interface d'"'"'administration du NAS, ou les baux DHCP de la box\n\nRenseignez ensuite le 6e champ de ce partage dans /etc/smart-mount/config\n(ou relancez : sudo nas-smartmount.sh setup).' ;;
             ws_nets)              text='Réseaux autorisés, séparés par ; (vide = le SSID global, * = indifférent). Vus à l instant : %s' ;;
+            h_nets)               text='RÉSEAUX' ;;
+            nets_global)          text='(global)' ;;
             wifi_connected)       text='Wi-Fi %s : %s (attendu : %s)' ;;
             wifi_disconnected)    text='Wi-Fi %s : non connecté' ;;
             wifi_unknown)         text='Wi-Fi %s : état illisible' ;;
@@ -206,6 +208,8 @@ msg() {
             ws_mac)               text='MAC address of %s (mandatory: without it the share is never mounted)' ;;
             ws_mac_missing)       text='No MAC address detected for %s.\n\nThe server did not answer: its MAC address cannot be read. This share will NOT\nbe mounted until a target MAC is configured, over Wi-Fi as well as Ethernet.\n\nTo find it:\n  - while the server is reachable:  ip neigh show %s\n  - or in the NAS administration interface, or in the router'"'"'s DHCP leases\n\nThen fill in the 6th field of that share in /etc/smart-mount/config\n(or re-run: sudo nas-smartmount.sh setup).' ;;
             ws_nets)              text='Accepted networks, separated by ; (empty = the global SSID, * = any). Seen right now: %s' ;;
+            h_nets)               text='NETWORKS' ;;
+            nets_global)          text='(global)' ;;
             wifi_connected)       text='Wi-Fi %s: %s (expected: %s)' ;;
             wifi_disconnected)    text='Wi-Fi %s: not connected' ;;
             wifi_unknown)         text='Wi-Fi %s: unreadable' ;;
@@ -902,7 +906,7 @@ collect_mounts() {
             state='mounted'
         fi
         SHOW_ROWS+=("$(printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s' \
-            "${target}" "${fstype}" '' '' '' "${source}" "${fstype}" "${mopts}" "${state}" '0' '')")
+            "${target}" "${fstype}" '' '' '-' "${source}" "${fstype}" "${mopts}" "${state}" '0' '')")
     done < <(timeout 5 findmnt -t nfs,nfs4,cifs -no TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null)
 }
 
@@ -927,15 +931,17 @@ collect_wifi() {
 render_table() {
     local row='' point='' type='' server='' path='' nets='' source='' fstype=''
     local mopts='' state='' conf='' copts=''
-    local h_type='' h_point='' h_source='' h_state='' h_opts=''
+    local h_type='' h_point='' h_source='' h_state='' h_opts='' h_nets=''
     h_type="$(msg h_type)"
     h_point="$(msg h_point)"
     h_source="$(msg h_source)"
     h_state="$(msg h_state)"
     h_opts="$(msg h_opts)"
-    local w_type=${#h_type} w_point=${#h_point} w_source=${#h_source} w_state=${#h_state}
+    h_nets="$(msg h_nets)"
+    local w_type=${#h_type} w_point=${#h_point} w_source=${#h_source} w_state=${#h_state} w_nets=${#h_nets}
     local -a cells=()
     local disp=''
+    local nets_disp=''
     local wifi_line=''
 
     case "${SHOW_WIFI_STATE}" in
@@ -954,21 +960,28 @@ render_table() {
             'mounted (not in configuration)') disp="$(msg st_foreign)" ;;
             *)                          disp="$(msg st_mounted)" ;;
         esac
-        cells+=("${type}|${point}|${source}|${disp}|${copts}")
+        # Le réseau propre au partage : c'est lui qui décide du montage, pas la ligne
+        # Wi-Fi globale affichée au-dessus (qui n'est que l'état de la machine).
+        nets_disp="${nets}"
+        [[ -n "${nets_disp}" ]] || nets_disp="$(msg nets_global)"
+        cells+=("${type}|${point}|${source}|${disp}|${nets_disp}|${copts}")
         (( ${#type} > w_type )) && w_type=${#type}
         (( ${#point} > w_point )) && w_point=${#point}
         (( ${#source} > w_source )) && w_source=${#source}
         (( ${#state} > w_state )) && w_state=${#state}
+        (( ${#nets_disp} > w_nets )) && w_nets=${#nets_disp}
     done
 
-    printf '%s  %s  %s  %s  %s\n' \
+    printf '%s  %s  %s  %s  %s  %s\n' \
         "$(pad "${h_type}" "${w_type}")" "$(pad "${h_point}" "${w_point}")" \
-        "$(pad "${h_source}" "${w_source}")" "$(pad "${h_state}" "${w_state}")" "${h_opts}"
+        "$(pad "${h_source}" "${w_source}")" "$(pad "${h_state}" "${w_state}")" \
+        "$(pad "${h_nets}" "${w_nets}")" "${h_opts}"
     for row in "${cells[@]}"; do
-        IFS='|' read -r type point source state copts <<< "${row}"
-        printf '%s  %s  %s  %s  %s\n' \
+        IFS='|' read -r type point source state nets_disp copts <<< "${row}"
+        printf '%s  %s  %s  %s  %s  %s\n' \
             "$(pad "${type}" "${w_type}")" "$(pad "${point}" "${w_point}")" \
-            "$(pad "${source}" "${w_source}")" "$(pad "${state}" "${w_state}")" "${copts:--}"
+            "$(pad "${source}" "${w_source}")" "$(pad "${state}" "${w_state}")" \
+            "$(pad "${nets_disp}" "${w_nets}")" "${copts:--}"
     done
 
     if [[ ${#SHOW_ROWS[@]} -eq 0 ]]; then
@@ -1018,7 +1031,7 @@ print_json_array() { # print_json_array <nom> <virgule finale 0|1> <élément…
 render_json() {
     local row='' point='' type='' server='' path='' nets='' source='' fstype=''
     local mopts='' state='' conf='' copts=''
-    local mounted='' healthy=''
+    local mounted='' healthy='' allowed=''
     local -a shares=() foreign=()
 
     for row in "${SHOW_ROWS[@]}"; do
@@ -1037,11 +1050,24 @@ render_json() {
             healthy='null'
         fi
 
+        # Réseau autorisé pour CE partage, évalué sur le SSID courant : c'est la
+        # question à laquelle le tableau global ne répond pas.
+        if [[ "${SHOW_WIFI_STATE}" == 'connected' ]]; then
+            if net_matches "${nets}" "${SHOW_WIFI_SSID}"; then
+                allowed='true'
+            else
+                allowed='false'
+            fi
+        else
+            allowed='null'
+        fi
+
         if [[ "${conf}" == '1' ]]; then
-            shares+=("$(printf '{"type": "%s", "server": "%s", "share": "%s", "mountpoint": "%s", "networks": "%s", "source": "%s", "fstype": "%s", "options": "%s", "runtime_options": "%s", "state": "%s", "mounted": %s, "healthy": %s}' \
+            shares+=("$(printf '{"type": "%s", "server": "%s", "share": "%s", "mountpoint": "%s", "networks": "%s", "network_allowed": %s, "source": "%s", "fstype": "%s", "options": "%s", "runtime_options": "%s", "state": "%s", "mounted": %s, "healthy": %s}' \
                 "$(json_escape "${type}")" "$(json_escape "${server}")" "$(json_escape "${path}")" \
-                "$(json_escape "${point}")" "$(json_escape "${nets}")" "$(json_escape "${source}")" \
-                "$(json_escape "${fstype}")" "$(json_escape "${copts}")" "$(json_escape "${mopts}")" \
+                "$(json_escape "${point}")" "$(json_escape "${nets}")" "${allowed}" \
+                "$(json_escape "${source}")" "$(json_escape "${fstype}")" \
+                "$(json_escape "${copts}")" "$(json_escape "${mopts}")" \
                 "$(json_escape "${state}")" "${mounted}" "${healthy}")")
         else
             foreign+=("$(printf '{"mountpoint": "%s", "source": "%s", "fstype": "%s", "runtime_options": "%s"}' \

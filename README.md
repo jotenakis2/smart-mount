@@ -64,8 +64,10 @@ shares are unaffected.
   cifs  /media/NAS-smb  //192.168.50.85/usbdisk_data       mounted, healthy  guest,iocharset=utf8,uid=1000,gid=1000
   ```
 
-  Above the table it prints the current Wi-Fi state — interface, SSID, and the SSID the
-  configuration expects — so a share that did not mount is explained without the journal.
+  Above the table, the current Wi-Fi state (interface, SSID, expected SSID) — that line is
+  the machine. The `NETWORKS` column carries what each share accepts (`(global)`, a list,
+  or `*`), which is what decides whether it may mount here. A share that did not mount is
+  therefore explained without the journal, and the JSON adds `network_allowed` per share.
   State is `mounted, healthy`, `mounted, NOT RESPONDING` or `not mounted`; the last
   column is the options retained in the configuration, not the kernel's.
   The last column shows the options retained in the configuration — the decision you

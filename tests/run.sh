@@ -1164,6 +1164,34 @@ out="$(run_show_json)"
 check "--json : bloc wifi" oui "$(contains "${out}" '"wifi": {"iface": "wlan0"')"
 check "--json : état wifi non traduit" oui "$(contains "${out}" '"state": "connected"')"
 
+# 93-95. Chaque partage a son propre réseau : le tableau le montre, --json donne le verdict.
+new_case show_networks_column
+set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,rsize=1"
+CASE_SHARES=(
+    "nfs|192.168.1.10|/share|${CASE_DIR}/mnt|nodev|aa:bb:cc:dd:ee:ff||Maison;ChezPapa"
+    "nfs|192.168.1.20|/x|${CASE_DIR}/mnt2|nodev|11:22:33:44:55:66||Atelier"
+)
+write_config
+out="$(run_show)"
+check "show : réseaux propres au partage" oui "$(contains "${out}" 'Maison;ChezPapa')"
+check "show : réseaux non autorisés listés aussi" oui "$(contains "${out}" 'Atelier')"
+check "show : en-tête RÉSEAUX" oui "$(contains "${out}" 'NETWORKS')"
+
+new_case show_networks_global
+write_config
+out="$(run_show)"
+check "show : (global) quand le champ est vide" oui "$(contains "${out}" '(global)')"
+
+new_case show_networks_json
+CASE_SHARES=(
+    "nfs|192.168.1.10|/share|${CASE_DIR}/mnt|nodev|aa:bb:cc:dd:ee:ff||Maison"
+    "nfs|192.168.1.20|/x|${CASE_DIR}/mnt2|nodev|11:22:33:44:55:66||Atelier"
+)
+write_config
+out="$(run_show_json)"
+check "--json : réseau autorisé" oui "$(contains "${out}" '"network_allowed": true')"
+check "--json : réseau refusé" oui "$(contains "${out}" '"network_allowed": false')"
+
 # ---------------------------------------------------------------- summary
 
 printf '\n%d test(s) ok, %d échec(s)\n' "${PASS}" "${FAIL}"

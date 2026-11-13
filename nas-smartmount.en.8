@@ -45,8 +45,15 @@ and the options retained in the configuration.
 Any NFS or CIFS mount that does not come from the configuration is listed as
 .IR "mounted (not in configuration)" .
 The current Wi-Fi state is printed above the table: interface, SSID, and the SSID the
-configuration expects — so a share that did not mount can be explained without reading the
-journal.
+configuration expects.
+That line is the machine's state; the
+.B NETWORKS
+column carries the networks accepted by each share
+.RI ( "(global)" ,
+or a list, or
+.RI * ),
+which is what actually decides whether that share may mount here — so a share that did not
+mount is explained without reading the journal.
 Read-only: nothing is mounted, unmounted or logged.
 It also works without root: the configuration is then unreadable, only the real mounts
 are listed, and a note says so.
@@ -73,7 +80,12 @@ The credentials path never appears.
 These values are never translated, and the current Wi-Fi state is reported in a
 .B wifi
 object
-.RI ( iface ", " ssid ", " state ", " expected ).
+.RI ( iface ", " ssid ", " state ", " expected ),
+and each share carries
+.I network_allowed
+(whether the current SSID is accepted for it, or
+.B null
+when the SSID cannot be read).
 .TP
 .B apply
 Evaluate the policy for every share and mount, repair or unmount as required.

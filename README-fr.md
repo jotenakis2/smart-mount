@@ -65,8 +65,10 @@ les autres partages ne sont pas affectés.
   cifs  /media/NAS-smb  //192.168.50.85/usbdisk_data       mounted, healthy  guest,iocharset=utf8,uid=1000,gid=1000
   ```
 
-  Au-dessus du tableau, l'état Wi-Fi courant : interface, SSID, et le SSID attendu par la
-  configuration — de quoi expliquer un partage qui n'est pas monté sans lire le journal.
+  Au-dessus du tableau, l'état Wi-Fi courant (interface, SSID, SSID attendu) — cette ligne
+  est la machine. La colonne `RÉSEAUX` porte ce que chaque partage accepte (`(global)`, une
+  liste, ou `*`), et c'est elle qui décide s'il peut monter ici. Un partage non monté est
+  donc expliqué sans le journal, et le JSON ajoute `network_allowed` par partage.
   L'état vaut `mounted, healthy`, `mounted, NOT RESPONDING` ou `not mounted` (la
   sortie est en anglais, comme le journal).
   La dernière colonne affiche les options **retenues dans la configuration** — ta

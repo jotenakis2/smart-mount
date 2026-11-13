@@ -45,8 +45,15 @@ et les options retenues dans la configuration.
 Tout montage NFS ou CIFS qui ne vient pas de la configuration apparaît en
 .IR "mounted (not in configuration)" .
 L'état Wi-Fi courant est affiché au-dessus du tableau : interface, SSID, et le SSID
-attendu par la configuration — de quoi expliquer un partage qui n'est pas monté sans
-aller lire le journal.
+attendu par la configuration.
+Cette ligne est l'état de la machine ; la colonne
+.B RÉSEAUX
+porte les réseaux acceptés par chaque partage
+.RI ( "(global)" ,
+ou une liste, ou
+.RI * ),
+et c'est elle qui décide si ce partage peut monter ici — de quoi expliquer un partage qui
+n'est pas monté sans aller lire le journal.
 Lecture seule : rien n'est monté, démonté ni journalisé.
 Fonctionne aussi sans root : la configuration est alors illisible, seuls les
 montages réels sont listés, et une note le dit.
@@ -72,7 +79,12 @@ et
 Le chemin des fichiers d'identifiants n'y apparaît jamais, et l'état Wi-Fi courant est
 rapporté dans un objet
 .B wifi
-.RI ( iface ", " ssid ", " state ", " expected ).
+.RI ( iface ", " ssid ", " state ", " expected ),
+et chaque partage porte
+.I network_allowed
+(le SSID courant est-il accepté pour lui, ou
+.B null
+quand le SSID est illisible).
 .TP
 .B apply
 Évalue la politique de chaque partage et monte, répare ou démonte selon le cas.
