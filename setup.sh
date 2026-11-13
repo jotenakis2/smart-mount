@@ -39,11 +39,11 @@ main() {
     find_active_lan_defaults
     find_lan_iface_fallback
 
-    whiptail --title "smart-mount setup" --msgbox "Configuration de smart-mount.
+    whiptail --title "smart-mount setup" --msgbox "smart-mount setup.
 
-Aucune entrée /etc/fstab n'est nécessaire : le montage est fait par smart-mount.
-Une entrée existante sert seulement de valeurs par défaut, et reçoit l'option
-'noauto' si elle entre en conflit (elle ne doit pas monter au démarrage)." 14 78 || true
+No /etc/fstab entry is needed: smart-mount does the mounting itself.
+An existing entry only provides defaults, and gets the 'noauto' option if it
+conflicts with a configured share (it must not mount at boot)." 14 78 || true
 
     COUNT="$(ask_count)"
     SHARES=()
@@ -52,9 +52,9 @@ Une entrée existante sert seulement de valeurs par défaut, et reçoit l'option
         SHARES+=("$(ask_share "${i}")")
     done
 
-    WIFI_NAME="$(ask_input "Réseau" "SSID du Wi-Fi depuis lequel les partages sont joignables" "${DEFAULT_WIFI_NAME}")"
-    WIFI_IFACE="$(ask_input "Réseau" "Interface réseau Wi-Fi" "${DEFAULT_WIFI_IFACE}")"
-    LAN_IFACE="$(ask_input "Réseau" "Interface réseau Ethernet/LAN" "${DEFAULT_LAN_IFACE}")"
+    WIFI_NAME="$(ask_input "Network" "Wi-Fi SSID from which the shares are reachable" "${DEFAULT_WIFI_NAME}")"
+    WIFI_IFACE="$(ask_input "Network" "Wi-Fi interface" "${DEFAULT_WIFI_IFACE}")"
+    LAN_IFACE="$(ask_input "Network" "Ethernet/LAN interface" "${DEFAULT_LAN_IFACE}")"
 
     write_config
     rewrite_fstab
@@ -234,10 +234,10 @@ ask_input() {
             return 0
         fi
 
-        whiptail --title "${title}" --msgbox "Caractères interdits : | \" \$ \` \\
+        whiptail --title "${title}" --msgbox "Forbidden characters: | \" \$ \` \\
 
-Le fichier de configuration est un script bash lu en root : ces caractères y
-sont dangereux. Merci de saisir une autre valeur." 12 78 || true
+The configuration file is a bash script read as root: these characters are
+dangerous there. Please enter another value." 12 78 || true
         default_value="${result}"
     done
 }
@@ -264,10 +264,10 @@ ask_menu() {
 
 ask_count() {
     local n
-    n="$(ask_input "Partages" "Combien de partages voulez-vous configurer ? (1 à 9)" "1")"
+    n="$(ask_input "Shares" "How many shares do you want to configure? (1-9)" "1")"
 
     while [[ ! "${n}" =~ ^[1-9]$ ]]; do
-        n="$(ask_input "Partages" "Nombre invalide. Combien de partages ? (1 à 9)" "1")"
+        n="$(ask_input "Shares" "Invalid number. How many shares? (1-9)" "1")"
     done
 
     printf '%s' "${n}"
@@ -288,13 +288,13 @@ ask_cifs_creds() { # ask_cifs_creds <numéro> <serveur> ; -> chemin du fichier o
     local server="$2"
     local user='' pass='' domain='' file=''
 
-    user="$(ask_input "Partage ${num}" "Utilisateur SMB (laisser vide = accès invité)" "")"
+    user="$(ask_input "Share ${num}" "SMB user (leave empty for guest access)" "")"
     if [[ -z "${user}" ]]; then
         return 0
     fi
 
-    pass="$(ask_password "Partage ${num}" "Mot de passe pour ${user} sur ${server}")"
-    domain="$(ask_input "Partage ${num}" "Domaine / groupe de travail (facultatif)" "")"
+    pass="$(ask_password "Share ${num}" "Password for ${user} on ${server}")"
+    domain="$(ask_input "Share ${num}" "Domain / workgroup (optional)" "")"
 
     file="${CONFIG_DIR}/credentials-${num}"
     umask 077
@@ -316,19 +316,19 @@ ask_share() { # ask_share <numéro> -> "type|serveur|partage|point|options|mac|c
     local type server path mount opts mac creds=''
     local default_server='' defaults='' mount_default='' opts_default=''
 
-    type="$(ask_menu "Partage ${num}" "Type du partage ${num}" \
+    type="$(ask_menu "Share ${num}" "Type of share ${num}" \
         "nfs" "NFS (Linux, NAS)" \
         "cifs" "CIFS / SMB (Windows, NAS)")"
 
     default_server="$(fstab_first_server "${type}")"
 
     if [[ "${type}" = "cifs" ]]; then
-        server="$(ask_input "Partage ${num}" "Nom ou adresse IP du serveur SMB" "${default_server}")"
-        path="$(ask_input "Partage ${num}" "Nom du partage SMB (ex : public)" "")"
+        server="$(ask_input "Share ${num}" "SMB server name or IP address" "${default_server}")"
+        path="$(ask_input "Share ${num}" "SMB share name (e.g. public)" "")"
         opts_default="vers=3.0,iocharset=utf8,nodev,nosuid,noexec"
     else
-        server="$(ask_input "Partage ${num}" "Adresse IP du serveur NFS" "${default_server}")"
-        path="$(ask_input "Partage ${num}" "Dossier exporté (ex : /volume1/share)" "")"
+        server="$(ask_input "Share ${num}" "NFS server IP address" "${default_server}")"
+        path="$(ask_input "Share ${num}" "Exported path (e.g. /volume1/share)" "")"
         opts_default="nodev,nosuid,noexec,noatime,lazytime"
     fi
 
@@ -343,35 +343,33 @@ ask_share() { # ask_share <numéro> -> "type|serveur|partage|point|options|mac|c
         mount_default="$(default_mount_for "${path}")"
     fi
 
-    mount="$(ask_input "Partage ${num}" "Point de montage" "${mount_default}")"
-    opts="$(ask_input "Partage ${num}" "Options de montage" "${opts_default}")"
+    mount="$(ask_input "Share ${num}" "Mount point" "${mount_default}")"
+    opts="$(ask_input "Share ${num}" "Mount options" "${opts_default}")"
 
     if [[ "${type}" = "cifs" ]]; then
         creds="$(ask_cifs_creds "${num}" "${server}")"
     fi
 
     mac="$(get_server_mac "${server}")"
-    mac="$(ask_input "Partage ${num}" "Adresse MAC du serveur ${server} (obligatoire : sans elle, pas de montage)" "${mac}")"
+    mac="$(ask_input "Share ${num}" "MAC address of ${server} (mandatory: without it the share is never mounted)" "${mac}")"
 
     if [[ -z "${mac}" ]]; then
-        whiptail --title "Partage ${num}" --msgbox "Adresse MAC non détectée pour ${server}.
+        whiptail --title "Share ${num}" --msgbox "No MAC address detected for ${server}.
 
-Le serveur n'a pas répondu : impossible de lire son adresse MAC. Ce partage ne
-sera PAS monté tant qu'aucune MAC cible n'est configurée, en Wi-Fi comme en
-Ethernet.
+The server did not answer: its MAC address cannot be read. This share will NOT
+be mounted until a target MAC is configured, over Wi-Fi as well as Ethernet.
 
-Pour la trouver :
-  - quand le serveur est joignable :  ip neigh show ${server}
-  - ou dans l'interface d'administration du NAS, ou la liste des baux DHCP de
-    la box
+To find it:
+  - while the server is reachable:  ip neigh show ${server}
+  - or in the NAS administration interface, or in the router's DHCP leases
 
-Renseignez ensuite le 6e champ du partage dans ${CONFIG_FILE}
-(ou relancez : sudo make install)." 22 78 || true
+Then fill in the 6th field of that share in ${CONFIG_FILE}
+(or re-run: sudo make install)." 22 78 || true
     fi
 
     # 8e champ : réseaux autorisés pour CE partage. Vide = le SSID global, ce qui
     # reproduit exactement le comportement d'avant.
-    nets="$(ask_input "Partage ${num}" "Réseaux autorisés, séparés par ; (vide = le SSID global, * = indifférent)" "")"
+    nets="$(ask_input "Share ${num}" "Accepted networks, separated by ; (empty = the global SSID, * = any)" "")"
 
     printf '%s|%s|%s|%s|%s|%s|%s|%s' "${type}" "${server}" "${path}" "${mount}" "${opts}" "${mac}" "${creds}" "${nets}"
 }
@@ -393,13 +391,13 @@ write_config() {
     {
         printf '# smart-mount — %s\n' "$(date '+%Y-%m-%d %H:%M')"
         printf '#\n'
-        printf '# Liens : un seul réseau domestique.\n'
+        printf '# Links: a single home network.\n'
         printf 'WIFI_NAME="%s"\n' "${WIFI_NAME}"
         printf 'WIFI_IFACE="%s"\n' "${WIFI_IFACE}"
         printf 'LAN_IFACE="%s"\n' "${LAN_IFACE}"
         printf '\n'
-        printf '# Partages : un enregistrement par partage, champs séparés par |\n'
-        printf '#   type|serveur|partage|point de montage|options|mac|identifiants|réseaux\n'
+        printf '# Shares: one record per share, fields separated by |\n'
+        printf '#   type|server|share|mount point|options|mac|credentials|networks\n'
         printf 'SHARES=(\n'
         for share in "${SHARES[@]}"; do
             printf '  "%s"\n' "${share}"
@@ -415,12 +413,12 @@ write_config() {
     chgrp "${SMARTMOUNT_GROUP:-root}" "${CONFIG_FILE}" 2>/dev/null || true
 
     if [[ "${backup}" = "yes" ]]; then
-        whiptail --title "smart-mount setup" --msgbox "Configuration enregistrée dans ${CONFIG_FILE}
+        whiptail --title "smart-mount setup" --msgbox "Configuration written to ${CONFIG_FILE}
 
-Précédente configuration conservée dans :
+Previous configuration kept in:
 ${backup_file}" 12 78 || true
     else
-        whiptail --title "smart-mount setup" --msgbox "Configuration enregistrée dans ${CONFIG_FILE}" 10 78 || true
+        whiptail --title "smart-mount setup" --msgbox "Configuration written to ${CONFIG_FILE}" 10 78 || true
     fi
 }
 # **************************************************************************************************************************************
@@ -516,12 +514,12 @@ rewrite_fstab() {
     cp -f "${tmp_file}" "${FSTAB}"
     rm -f "${tmp_file}"
 
-    whiptail --title "smart-mount setup" --msgbox "Une ou plusieurs entrées ${FSTAB} correspondant à vos partages ont reçu l'option 'noauto' (et perdu 'x-systemd.automount').
+    whiptail --title "smart-mount setup" --msgbox "One or more ${FSTAB} entries matching your shares received the 'noauto' option (and lost 'x-systemd.automount').
 
-Elles ne se monteront plus au démarrage : c'est smart-mount qui s'en charge,
-depuis le hook réseau et le timer.
+They will no longer mount at boot: smart-mount does it, from the network hook
+and the timer.
 
-Sauvegarde : ${backup_file}" 14 78 || true
+Backup: ${backup_file}" 14 78 || true
 }
 # **************************************************************************************************************************************
 # **************************************************************************************************************************************

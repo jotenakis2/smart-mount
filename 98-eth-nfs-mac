@@ -7,7 +7,7 @@ if [[ -f "${CONFIG}" ]]; then
 	# shellcheck source=/etc/smart-mount/config
 	source "${CONFIG}"
 else
-	echo "config manquante"
+	echo "config missing"
 	exit 1
 fi
 
@@ -38,7 +38,7 @@ log_err() {
 trap_err() {
     local exit_code="${1}"
     local line_number="${2}"
-    log_err "Erreur ligne ${line_number}, code ${exit_code}"
+    log_err "Error at line ${line_number}, code ${exit_code}"
 }
 
 trap 'trap_err "$?" "${LINENO}"' ERR
@@ -56,10 +56,10 @@ main() {
             # déclenche la politique unique du script principal, qui regarde le
             # Wi-Fi ET l'Ethernet. C'est ce qui empêche les deux hooks de se
             # contredire quand les deux liens sont actifs.
-            "${MAIN_SCRIPT}" apply || log_err "Application de la politique smart-mount en échec"
+            "${MAIN_SCRIPT}" apply || log_err "smart-mount policy run failed"
             ;;
         *)
-            log_info "État ignoré: ${STATE}"
+            log_info "State ignored: ${STATE}"
             ;;
     esac
 }

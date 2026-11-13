@@ -249,7 +249,7 @@ rc="$(run_script apply)"
 check "sain : code 0" 0 "${rc}"
 check "sain : pas de mount" oui "$(not_called 'mount -t nfs')"
 check "sain : pas de umount" oui "$(not_called '^umount')"
-check "sain : journalise l'état sain" oui "$(called 'sain')"
+check "sain : journalise l'état sain" oui "$(called 'already mounted and healthy')"
 
 # 3. NAS redémarré : le point est monté mais muet -> démonter puis remonter.
 new_case nas_rebooted
@@ -295,7 +295,7 @@ rc="$(run_script apply)"
 check "ssid illisible : code 0" 0 "${rc}"
 check "ssid illisible : aucun umount" oui "$(not_called '^umount')"
 check "ssid illisible : aucun mount" oui "$(not_called 'mount -t nfs')"
-check "ssid illisible : journalise l'abstention" oui "$(called 'SSID illisible')"
+check "ssid illisible : journalise l'abstention" oui "$(called 'SSID unreadable')"
 
 # 7. Wi-Fi déconnecté : état certain, on démonte.
 new_case wifi_disconnected
@@ -334,7 +334,7 @@ stub ping 'printf "ping %s\n" "$*" >> "$CALLS"; exit 1'
 rc="$(run_script apply)"
 check "serveur injoignable : code 127" 127 "${rc}"
 check "serveur injoignable : pas de mount" oui "$(not_called 'mount -t nfs')"
-check "serveur injoignable : journalise l injoignabilité" oui "$(called "injoignable")"
+check "serveur injoignable : journalise l injoignabilité" oui "$(called "unreachable")"
 
 # 12. Échec transitoire du test de santé : le montage est conservé.
 new_case health_flaky
@@ -345,7 +345,7 @@ rc="$(run_script apply)"
 check "santé instable : code 0" 0 "${rc}"
 check "santé instable : aucun umount" oui "$(not_called '^umount')"
 check "santé instable : aucun remontage" oui "$(not_called 'mount -t nfs')"
-check "santé instable : montage conservé" oui "$(called 'second essai')"
+check "santé instable : montage conservé" oui "$(called 'second check')"
 
 # 13. Montage muet ET point occupé : la réparation doit passer par umount -l.
 new_case repair_needs_lazy
@@ -427,7 +427,7 @@ set_neighbor aa:bb:cc:dd:ee:ff
 rc="$(run_script apply)"
 check "eth + wifi coupé : code 0" 0 "${rc}"
 check "eth + wifi coupé : montage" oui "$(called 'mount -t nfs')"
-check "eth + wifi coupé : ethernet confirmé" oui "$(called "confirmé sur Ethernet")"
+check "eth + wifi coupé : ethernet confirmé" oui "$(called "confirmed on Ethernet")"
 
 # 21. Wi-Fi étranger mais Ethernet domestique : on garde le montage (l'ancien
 # hook Wi-Fi démontait, l'ancien hook Ethernet montait : ils se battaient).
@@ -438,7 +438,7 @@ set_neighbor aa:bb:cc:dd:ee:ff
 rc="$(run_script apply)"
 check "eth + wifi étranger : code 0" 0 "${rc}"
 check "eth + wifi étranger : aucun démontage" oui "$(not_called '^umount')"
-check "eth + wifi étranger : ethernet confirmé" oui "$(called "confirmé sur Ethernet")"
+check "eth + wifi étranger : ethernet confirmé" oui "$(called "confirmed on Ethernet")"
 
 # 22. Wi-Fi domestique mais MAC Ethernet étrangère : on garde aussi le montage.
 new_case wifi_trusted_eth_foreign
@@ -447,7 +447,7 @@ neighbors aa:bb:cc:dd:ee:ff aa:bb:cc:dd:ee:01
 rc="$(run_script apply)"
 check "wifi ok + eth étranger : code 0" 0 "${rc}"
 check "wifi ok + eth étranger : aucun démontage" oui "$(not_called '^umount')"
-check "wifi ok + eth étranger : wi-fi ciblé" oui "$(called "Wi-Fi ciblé")"
+check "wifi ok + eth étranger : wi-fi ciblé" oui "$(called "targeted Wi-Fi")"
 
 # 23. Aucun des deux liens : on démonte.
 new_case neither_trusted
@@ -538,7 +538,7 @@ rc="$( SMARTMOUNT_DRY_RUN=1; export SMARTMOUNT_DRY_RUN
          SMARTMOUNT_DEPS="" bash "${SCRIPT}" apply >/dev/null 2>&1; echo $? )"
 check "dry-run montage : code 0" 0 "${rc}"
 check "dry-run montage : aucun mount réel" oui "$(not_called 'mount -t nfs')"
-check "dry-run montage : décision journalisée" oui "$(called '\[dry-run\] montage')"
+check "dry-run montage : décision journalisée" oui "$(called '\[dry-run\] mount')"
 
 new_case dry_run_unmount
 stub iw 'printf "iw %s\n" "$*" >> "$CALLS"; printf "Not connected.\n"'
@@ -548,7 +548,7 @@ rc="$( SMARTMOUNT_DRY_RUN=1; export SMARTMOUNT_DRY_RUN
          SMARTMOUNT_DEPS="" bash "${SCRIPT}" apply >/dev/null 2>&1; echo $? )"
 check "dry-run démontage : code 0" 0 "${rc}"
 check "dry-run démontage : aucun umount réel" oui "$(not_called '^umount')"
-check "dry-run démontage : décision journalisée" oui "$(called '\[dry-run\] démontage')"
+check "dry-run démontage : décision journalisée" oui "$(called '\[dry-run\] unmount')"
 
 # 35-38. La MAC cible est l'identité du serveur, exigée sur les deux liens.
 new_case mac_missing_apply
@@ -557,7 +557,7 @@ set_neighbor aa:bb:cc:dd:ee:ff
 rc="$(run_script apply)"
 check "sans MAC (apply) : code 4" 4 "${rc}"
 check "sans MAC (apply) : aucun montage" oui "$(not_called 'mount -t nfs')"
-check "sans MAC (apply) : message dédié" oui "$(called 'MAC cible absente')"
+check "sans MAC (apply) : message dédié" oui "$(called 'no target MAC')"
 
 new_case mac_missing_mount
 set_share_mac ""
@@ -574,7 +574,7 @@ rc="$(run_script apply)"
 check "wifi sans voisin : code 0" 0 "${rc}"
 check "wifi sans voisin : aucun montage" oui "$(not_called 'mount -t nfs')"
 check "wifi sans voisin : démontage" oui "$(called '^umount')"
-check "wifi sans voisin : identité non vérifiée" oui "$(called 'identité non vérifiée')"
+check "wifi sans voisin : identité non vérifiée" oui "$(called 'identity not verified')"
 
 # Wi-Fi ciblé mais MAC différente : identité refusée.
 new_case wifi_ssid_ok_mac_wrong
@@ -584,7 +584,7 @@ rc="$(run_script apply)"
 check "wifi MAC fausse : code 0" 0 "${rc}"
 check "wifi MAC fausse : aucun montage" oui "$(not_called 'mount -t nfs')"
 check "wifi MAC fausse : démontage" oui "$(called '^umount')"
-check "wifi MAC fausse : identité refusée" oui "$(called 'identité refusée')"
+check "wifi MAC fausse : identité refusée" oui "$(called 'identity rejected')"
 
 # 39-41. Dépendances dures : refus nommé, mais le démontage reste toujours possible.
 new_case deps_missing_apply
@@ -622,7 +622,7 @@ rc="$(run_script apply)"
 check "multi : code 0" 0 "${rc}"
 check "multi : partage présent monté" oui "$(called '192.168.1.10:/share ')"
 check "multi : partage absent non monté" oui "$(not_called '192.168.1.20:/share2')"
-check "multi : identité du second refusée" oui "$(called 'identité non vérifiée')"
+check "multi : identité du second refusée" oui "$(called 'identity not verified')"
 
 new_case multi_share_both_present
 # Les deux serveurs sont dans la table ARP : les deux partages doivent être montés.
@@ -716,10 +716,10 @@ CASE_SHARES=(
 )
 write_config
 out="$(run_show)"
-check "show : en-tête" oui "$(contains "${out}" 'POINT DE MONTAGE')"
-check "show : partage nfs monté et sain" oui "$(contains "${out}" 'monté, sain')"
+check "show : en-tête" oui "$(contains "${out}" 'MOUNT POINT')"
+check "show : partage nfs monté et sain" oui "$(contains "${out}" 'mounted, healthy')"
 check "show : les deux points listés" oui "$(contains "${out}" "${CASE_DIR}/mnt2")"
-check "show : aucun montage hors config" oui "$(lacks "${out}" 'hors configuration')"
+check "show : aucun montage hors config" oui "$(lacks "${out}" 'not in configuration')"
 check "show : options retenues (nfs)" oui "$(contains "${out}" 'nodev')"
 check "show : options retenues (cifs)" oui "$(contains "${out}" 'vers=3.0')"
 check "show : options du noyau masquées" oui "$(lacks "${out}" 'rsize')"
@@ -732,7 +732,7 @@ CASE_SHARES=(
 )
 write_config
 out="$(run_show)"
-check "show : partage démonté signalé" oui "$(contains "${out}" 'démonté')"
+check "show : partage démonté signalé" oui "$(contains "${out}" 'not mounted')"
 check "show : source configurée affichée" oui "$(contains "${out}" '//192.168.1.30/public')"
 
 new_case show_foreign_mount
@@ -740,7 +740,7 @@ set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,nodev" \
                 "/media/AUTRE //192.168.1.99/x cifs rw"
 write_config
 out="$(run_show)"
-check "show : montage hors configuration signalé" oui "$(contains "${out}" 'monté (hors configuration)')"
+check "show : montage hors configuration signalé" oui "$(contains "${out}" 'mounted (not in configuration)')"
 
 new_case show_unhealthy
 set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,nodev"
@@ -748,7 +748,7 @@ stub stat 'printf "stat\n" >> "$CALLS"; exit 1'
 stub ls 'printf "ls\n" >> "$CALLS"; exit 1'
 write_config
 out="$(run_show)"
-check "show : montage muet signalé" oui "$(contains "${out}" 'monté, MUET')"
+check "show : montage muet signalé" oui "$(contains "${out}" 'mounted, NOT RESPONDING')"
 
 # Chemin de configuration inutilisable : un répertoire. Déterministe, alors
 # qu'un chmod 000 serait sans effet quand la suite tourne en root.
@@ -758,7 +758,7 @@ rm -f "${CASE_DIR}/config"
 mkdir -p "${CASE_DIR}/config"
 out="$(run_show)"
 check "show : montages réels affichés sans config" oui "$(contains "${out}" '/media/NAS')"
-check "show : note sur la config illisible" oui "$(contains "${out}" 'Configuration illisible')"
+check "show : note sur la config illisible" oui "$(contains "${out}" 'Configuration not readable')"
 rmdir "${CASE_DIR}/config"
 
 # 53-54. Serveur muet : `umount` attend ses RPC, `umount -f` les abandonne. Ce
@@ -839,7 +839,7 @@ check "show --json : partage monté" oui "$(contains "${out}" '"mounted": true')
 check "show --json : partage démonté" oui "$(contains "${out}" '"mounted": false')"
 check "show --json : santé renseignée" oui "$(contains "${out}" '"healthy": true')"
 check "show --json : chemin des identifiants absent" oui "$(lacks "${out}" 'credentials-1')"
-check "show --json : état lisible" oui "$(contains "${out}" 'démonté')"
+check "show --json : état lisible" oui "$(contains "${out}" 'not mounted')"
 check "show --json : options retenues" oui "$(contains "${out}" '"options": "nodev')"
 check "show --json : options du noyau à part" oui "$(contains "${out}" '"runtime_options": "rw,nodev')"
 check "show --json : options du noyau jamais en tête" oui "$(lacks "${out}" '"options": "rw,nodev')"
@@ -862,6 +862,38 @@ else
 fi
 check "show --json sans config : JSON valide" oui "${valid}"
 rmdir "${CASE_DIR}/config"
+
+# 60-61. `--help` (en français) et alignement du tableau quand un chemin porte un
+# accent : la largeur d'une colonne se compte en caractères, pas en octets.
+new_case help_flag
+out="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/absent" \
+        bash "${SCRIPT}" --help 2>&1 )"
+rc=$?
+check "--help : code 0" 0 "${rc}"
+check "--help : décrit les verbes" oui "$(contains "${out}" 'nfs-smartmount.sh show')"
+check "--help : renvoie à la page de man" oui "$(contains "${out}" 'man 8 nfs-smartmount')"
+check "--help : ne lit pas la configuration" oui "$(lacks "${out}" 'Configuration missing')"
+
+new_case show_alignment_accented
+set_mount_table "${CASE_DIR}/Montréal 192.168.1.10:/share nfs4 rw,rsize=1" \
+                "${CASE_DIR}/mnt2 //192.168.1.30/public cifs rw,rsize=1"
+CASE_SHARES=(
+    "nfs|192.168.1.10|/share|${CASE_DIR}/Montréal|nodev|aa:bb:cc:dd:ee:ff|"
+    "cifs|192.168.1.30|public|${CASE_DIR}/mnt2|vers=3.0|aa:bb:cc:dd:ee:ff|"
+)
+write_config
+out="$(run_show)"
+if command -v python3 >/dev/null 2>&1; then
+    aligned="$(printf '%s\n' "${out}" | python3 -c '
+import sys
+rows = [l for l in sys.stdin.read().splitlines()
+        if l.startswith("nfs") or l.startswith("cifs")]
+print("oui" if len(rows) == 2 and len({r.find("mounted") for r in rows}) == 1 else "non")
+')"
+else
+    aligned=oui
+fi
+check "show : colonnes alignées avec un chemin accentué" oui "${aligned}"
 
 # ---------------------------------------------------------------- summary
 

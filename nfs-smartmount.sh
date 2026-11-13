@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.7
+VER=1.8
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -68,13 +68,46 @@ trap_err() {
         1)   str="Error mounting a share (see the log lines above)";;
         2)   str="Error unmounting a mount point (see the log lines above)";;
         3)   str="${SCRIPT_NAME} syntax error - valid usage is : ${SCRIPT_NAME} {show [--json]|mount|unmount|apply}" ;;
-        4)   str="MAC cible absente pour un partage: refus de monter (voir README)";;
-        5)   str="Dépendance(s) manquante(s): ${MISSING_DEPS} — voir README, section Requirements";;
-        122) str="Configuration absente ou sans partage (${CONFIG})";;
-        127) str="Un serveur ne répond pas au ping (voir le partage concerné dans le journal)";;
+        4)   str="No target MAC for a share: refusing to mount (see the log above)";;
+        5)   str="Missing dependency: ${MISSING_DEPS} — see README, Requirements";;
+        122) str="Configuration missing or without any share (${CONFIG})";;
+        127) str="A server does not answer ping (see the share in the journal)";;
         *)   str="Unknown error";;
     esac
     log_err "${str}"
+}
+
+# Le seul texte volontairement en français avec le journal de l'ancienne version :
+# l'aide s'adresse à un humain devant le terminal. Tout le reste — messages de
+# journal, sortie de `show`, erreurs — est en anglais, parce que ces lignes finissent
+# dans un rapport de bug ou dans une issue.
+help_text() {
+    cat <<'HELPEOF'
+smart-mount — monte des partages NFS et CIFS seulement quand le bon serveur est
+joignable sur le bon réseau, les répare, et les démonte sinon.
+
+Usage :
+  nfs-smartmount.sh show [--json]   montages actifs et options retenues
+  nfs-smartmount.sh apply           applique la politique à tous les partages
+  nfs-smartmount.sh mount           monte ce qui est légitime, ne démonte jamais
+  nfs-smartmount.sh unmount         démonte tous les points de montage configurés
+  nfs-smartmount.sh --help          ce texte
+
+Configuration : /etc/smart-mount/config (root, 0640)
+  WIFI_NAME, WIFI_IFACE, LAN_IFACE
+  SHARES=("type|serveur|partage|point|options|mac|identifiants|réseaux" …)
+  réseaux : SSID séparés par ; — vide = le SSID global, * = n'importe quel réseau
+
+Variables d'environnement :
+  SMARTMOUNT_DRY_RUN=1   calcule et journalise la décision sans rien monter
+  SMARTMOUNT_CONFIG      autre chemin de configuration (tests)
+
+Codes de sortie : 0 ok · 1 échec de montage · 2 échec de démontage · 3 usage
+invalide · 4 MAC cible absente · 5 dépendance manquante · 122 configuration
+absente · 127 serveur injoignable
+
+Détail : man 8 nfs-smartmount
+HELPEOF
 }
 
 # SMARTMOUNT_DRY_RUN=1 évalue la politique et journalise la décision sans monter
@@ -208,16 +241,16 @@ neighbor_is_target() { # neighbor_is_target <iface> <ip> <mac attendue>
     fi
 
     if [[ -z "${mac}" ]]; then
-        log_info "${ip_addr} absent de la table ARP de ${iface}: identité non vérifiée"
+        log_info "${ip_addr} absent from the ARP table of ${iface}: identity not verified"
         return 1
     fi
 
     if [[ "${mac,,}" != "${want,,}" ]]; then
-        log_notice "MAC ${mac} sur ${iface} pour ${ip_addr}, attendue ${want}: identité refusée"
+        log_notice "MAC ${mac} sur ${iface} for ${ip_addr}, expected ${want}: identity rejected"
         return 1
     fi
 
-    log_notice "Serveur confirmé: ${ip_addr} sur ${iface} (${mac})"
+    log_notice "Server confirmed: ${ip_addr} on ${iface} (${mac})"
     return 0
 }
 
@@ -238,7 +271,7 @@ mount_is_healthy() { # mount_is_healthy <point>
 umount_lazy() { # umount_lazy <point>
     local mount="${1:-}"
     if timeout 10 umount -l -- "${mount}" 2>/dev/null; then
-        log_notice "[${mount}] démontage paresseux effectué"
+        log_notice "[${mount}] lazy unmount done"
         return 0
     fi
     return 2
@@ -259,9 +292,9 @@ umount_forced() { # umount_forced <point>
         *)    return 1 ;;
     esac
 
-    log_warning "[${mount}] serveur muet, repli forcé (umount -f : RPC abandonnés)"
+    log_warning "[${mount}] server unresponsive, forcing unmount (umount -f: pending RPCs abandoned)"
     if timeout 10 umount -f -- "${mount}" 2>/dev/null; then
-        log_notice "[${mount}] démontage forcé effectué"
+        log_notice "[${mount}] forced unmount done"
         return 0
     fi
     return 1
@@ -276,17 +309,17 @@ unmount_one() { # unmount_one <point>
 
     # 1 = franchement pas monté. 0 = monté. 124 = expiré, on tente quand même.
     if [[ ${mountpoint_rc} -eq 1 ]]; then
-        log_notice "[${mount}] déjà démonté"
+        log_notice "[${mount}] already unmounted"
         return 0
     fi
 
     if dry_run; then
-        log_notice "[dry-run] démontage de ${mount} non effectué"
+        log_notice "[dry-run] unmount of ${mount} not performed"
         return 0
     fi
 
     if timeout 10 umount -- "${mount}" 2>/dev/null; then
-        log_info "[${mount}] démontage réussi"
+        log_info "[${mount}] unmount succeeded"
         return 0
     fi
 
@@ -298,7 +331,7 @@ unmount_one() { # unmount_one <point>
 
     # Cas courant : un shell ou un IDE ouvert dans le partage. Sans ce repli le
     # portable part avec un montage dur actif et fige au prochain accès.
-    log_warning "[${mount}] démontage bloqué (point occupé ?), repli paresseux"
+    log_warning "[${mount}] unmount blocked (busy mount point?), trying lazy unmount"
     if umount_lazy "${mount}"; then
         return 0
     fi
@@ -320,9 +353,9 @@ mount_one() { # mount_one <type> <serveur> <partage> <point> <options> <identifi
 
     if [[ ! -d "${mount}" ]]; then
         if mkdir -p -- "${mount}" 2>/dev/null; then
-            log_info "[${mount}] point de montage créé"
+            log_info "[${mount}] mount point created"
         else
-            log_err "[${mount}] impossible de créer le point de montage"
+            log_err "[${mount}] cannot create the mount point"
             return 1
         fi
     fi
@@ -333,32 +366,32 @@ mount_one() { # mount_one <type> <serveur> <partage> <point> <options> <identifi
 
     if [[ ${mountpoint_rc} -eq 0 ]]; then
         if mount_is_healthy "${mount}"; then
-            log_notice "[${mount}] déjà monté et sain"
+            log_notice "[${mount}] already mounted and healthy"
             return 0
         fi
         # Un test de santé peut échouer sur une coupure de deux secondes : on
         # confirme avant de détruire un montage qui fonctionne.
         sleep 2
         if mount_is_healthy "${mount}"; then
-            log_notice "[${mount}] déjà monté et sain au second essai"
+            log_notice "[${mount}] already mounted and healthy on second check"
             return 0
         fi
-        log_warning "[${mount}] montage muet: réparation"
+        log_warning "[${mount}] mounted but not responding: repairing"
         if ! unmount_one "${mount}"; then
-            log_err "[${mount}] réparation impossible: reste monté et muet"
+            log_err "[${mount}] repair failed: still mounted and not responding"
             return 1
         fi
     elif [[ ${mountpoint_rc} -eq 124 ]]; then
-        log_warning "[${mount}] vérification expirée: réparation"
+        log_warning "[${mount}] check timed out: repairing"
         # Si rien n'est monté, `umount -l` échoue : ce n'est pas une raison de
         # renoncer au montage, on laisse la tentative suivante trancher.
         if ! umount_lazy "${mount}"; then
-            log_warning "[${mount}] rien à démonter paresseusement, tentative de montage"
+            log_warning "[${mount}] nothing to unmount lazily, attempting mount"
         fi
     fi
 
     if ! ping -c 1 -i 0.2 -W 2 -w 3 "${server}" >/dev/null 2>&1; then
-        log_info "[${mount}] ${server} injoignable, pas de montage"
+        log_info "[${mount}] ${server} unreachable, not mounting"
         return 127
     fi
 
@@ -372,7 +405,7 @@ mount_one() { # mount_one <type> <serveur> <partage> <point> <options> <identifi
     fi
 
     if dry_run; then
-        log_notice "[dry-run] montage ${spec} -> ${mount} non effectué"
+        log_notice "[dry-run] mount ${spec} -> ${mount} not performed"
         return 0
     fi
 
@@ -381,11 +414,11 @@ mount_one() { # mount_one <type> <serveur> <partage> <point> <options> <identifi
     args+=(-- "${spec}" "${mount}")
 
     if mount "${args[@]}" 2>/dev/null; then
-        log_info "[${mount}] montage réussi: ${spec}"
+        log_info "[${mount}] mount succeeded: ${spec}"
         return 0
     fi
 
-    log_err "[${mount}] échec du montage de ${spec}"
+    log_err "[${mount}] failed to mount ${spec}"
     return 1
 }
 
@@ -433,48 +466,48 @@ apply_share() { # apply_share <record> <ssid> <état wifi> <apply|mount>
     nets="$(share_field "${record}" 8)"
 
     if [[ -z "${type}" || -z "${server}" || -z "${path}" || -z "${mount}" ]]; then
-        log_err "Enregistrement de partage invalide: ${record}"
+        log_err "Invalid share record: ${record}"
         return 3
     fi
 
     if [[ "${type}" != "nfs" && "${type}" != "cifs" ]]; then
-        log_err "[${mount}] type de partage inconnu: ${type}"
+        log_err "[${mount}] unknown share type: ${type}"
         return 3
     fi
 
     # L'identité du serveur ne se devine pas : sans MAC cible, pas de montage.
     if [[ -z "${mac}" ]]; then
-        log_err "[${mount}] MAC cible absente: refus de monter"
+        log_err "[${mount}] no target MAC: refusing to mount"
         return 4
     fi
 
     if [[ ${state} -eq 0 ]] && net_matches "${nets}" "${ssid}" \
         && neighbor_is_target "${WIFI_IFACE:-}" "${server}" "${mac}"; then
-        log_info "[${mount}] Wi-Fi ciblé (${ssid}) et ${server} confirmé: montage attendu"
+        log_info "[${mount}] targeted Wi-Fi (${ssid}) and ${server} confirmed: mount expected"
         mount_one "${type}" "${server}" "${path}" "${mount}" "${opts}" "${creds}"
         return
     fi
 
     if neighbor_is_target "${LAN_IFACE:-}" "${server}" "${mac}"; then
-        log_info "[${mount}] ${server} confirmé sur Ethernet: montage attendu"
+        log_info "[${mount}] ${server} confirmed on Ethernet: mount expected"
         mount_one "${type}" "${server}" "${path}" "${mount}" "${opts}" "${creds}"
         return
     fi
 
     if [[ ${state} -eq 2 ]]; then
-        log_warning "[${mount}] SSID illisible et ${server} non confirmé: aucune action"
+        log_warning "[${mount}] SSID unreadable and ${server} not confirmed: no action"
         return 0
     fi
 
     if [[ "${mode}" == "mount" ]]; then
-        log_info "[${mount}] aucun lien confirmé, pas de montage"
+        log_info "[${mount}] no link confirmed, not mounting"
         return 0
     fi
 
     if [[ ${state} -eq 0 ]] && net_matches "${nets}" "${ssid}"; then
-        log_info "[${mount}] Wi-Fi ciblé mais ${server} non confirmé: montage non attendu"
+        log_info "[${mount}] targeted Wi-Fi but ${server} not confirmed: mount not expected"
     else
-        log_info "[${mount}] réseau non reconnu pour ${server}: montage non attendu"
+        log_info "[${mount}] unrecognised network for ${server}: mount not expected"
     fi
     unmount_one "${mount}"
 }
@@ -486,7 +519,7 @@ run_policy() { # run_policy <apply|mount>
     require_runtime "$(share_extra_deps)" || return 5
 
     if [[ ${#SHARES[@]} -eq 0 ]]; then
-        log_err "Aucun partage configuré dans ${CONFIG}"
+        log_err "No share configured in ${CONFIG}"
         return 122
     fi
 
@@ -519,6 +552,37 @@ unmount_all() {
 # politique n'est appelée, rien n'est monté ni démonté, et aucun log n'est émis.
 # Deux rendus pour une seule collecte : un tableau pour l'œil, du JSON pour un
 # script ou une interface.
+# Les colonnes se comptent en CARACTÈRES : sans locale UTF-8, bash compte des octets
+# et `printf %-*s` remplit en octets, si bien que chaque accent décalait le tableau
+# d'une colonne. On force donc une locale UTF-8 quand la machine en propose une (les
+# appels nmcli gardent leur LC_ALL=C explicite), et on remplit avec des espaces
+# calculées au lieu de la largeur de printf.
+utf8_setup() {
+    [[ "${SMARTMOUNT_UTF8:-0}" -eq 1 ]] && return 0
+    if [[ "$(locale charmap 2>/dev/null)" == UTF-8 ]]; then
+        SMARTMOUNT_UTF8=1
+        return 0
+    fi
+
+    local candidate=''
+    for candidate in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
+        if [[ "$(LC_ALL="${candidate}" locale charmap 2>/dev/null)" == UTF-8 ]]; then
+            export LC_ALL="${candidate}"
+            SMARTMOUNT_UTF8=1
+            return 0
+        fi
+    done
+    return 0
+}
+
+pad() { # pad <texte> <largeur en caractères>
+    local text="${1-}"
+    local width="${2:-0}"
+    local n=$(( width - ${#text} ))
+    (( n > 0 )) || n=0
+    printf '%s%*s' "${text}" "${n}" ''
+}
+
 json_escape() { # json_escape <texte>
     local s="${1-}"
 
@@ -561,9 +625,9 @@ collect_mounts() {
             < <(timeout 5 findmnt -M "${mount}" -no TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null) \
             && [[ -n "${target}" ]]; then
             if mount_is_healthy "${mount}"; then
-                state='monté, sain'
+                state='mounted, healthy'
             else
-                state='monté, MUET'
+                state='mounted, NOT RESPONDING'
             fi
             SHOW_ROWS+=("$(printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s' \
                 "${mount}" "${type}" "${server}" "${path}" "${nets}" \
@@ -573,7 +637,7 @@ collect_mounts() {
             # partage aurait eues, pour que l'écart soit lisible.
             SHOW_ROWS+=("$(printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s' \
                 "${mount}" "${type}" "${server}" "${path}" "${nets}" \
-                "${spec}" '' '' 'démonté' '1' "${opts}")")
+                "${spec}" '' '' 'not mounted' '1' "${opts}")")
         fi
     done
 
@@ -587,9 +651,9 @@ collect_mounts() {
         done
         [[ ${known} -eq 1 ]] && continue
         if [[ ${SHOW_HAVE_CONFIG} -eq 1 ]]; then
-            state='monté (hors configuration)'
+            state='mounted (not in configuration)'
         else
-            state='monté'
+            state='mounted'
         fi
         SHOW_ROWS+=("$(printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s' \
             "${target}" "${fstype}" '' '' '' "${source}" "${fstype}" "${mopts}" "${state}" '0' '')")
@@ -599,7 +663,7 @@ collect_mounts() {
 render_table() {
     local row='' point='' type='' server='' path='' nets='' source='' fstype=''
     local mopts='' state='' conf='' copts=''
-    local h_type='TYPE' h_point='POINT DE MONTAGE' h_source='SOURCE' h_state='ÉTAT' h_opts='OPTIONS'
+    local h_type='TYPE' h_point='MOUNT POINT' h_source='SOURCE' h_state='STATE' h_opts='OPTIONS'
     local w_type=${#h_type} w_point=${#h_point} w_source=${#h_source} w_state=${#h_state}
     local -a cells=()
 
@@ -612,23 +676,23 @@ render_table() {
         (( ${#state} > w_state )) && w_state=${#state}
     done
 
-    printf '%-*s  %-*s  %-*s  %-*s  %s\n' \
-        "${w_type}" "${h_type}" "${w_point}" "${h_point}" "${w_source}" "${h_source}" \
-        "${w_state}" "${h_state}" "${h_opts}"
+    printf '%s  %s  %s  %s  %s\n' \
+        "$(pad "${h_type}" "${w_type}")" "$(pad "${h_point}" "${w_point}")" \
+        "$(pad "${h_source}" "${w_source}")" "$(pad "${h_state}" "${w_state}")" "${h_opts}"
     for row in "${cells[@]}"; do
         IFS='|' read -r type point source state copts <<< "${row}"
-        printf '%-*s  %-*s  %-*s  %-*s  %s\n' \
-            "${w_type}" "${type}" "${w_point}" "${point}" "${w_source}" "${source}" \
-            "${w_state}" "${state}" "${copts:--}"
+        printf '%s  %s  %s  %s  %s\n' \
+            "$(pad "${type}" "${w_type}")" "$(pad "${point}" "${w_point}")" \
+            "$(pad "${source}" "${w_source}")" "$(pad "${state}" "${w_state}")" "${copts:--}"
     done
 
     if [[ ${#SHOW_ROWS[@]} -eq 0 ]]; then
-        echo '(aucun montage nfs/cifs actif)'
+        echo '(no active nfs/cifs mount)'
     fi
 
     if [[ ${SHOW_HAVE_CONFIG} -eq 0 ]]; then
         echo
-        echo "Configuration illisible (${CONFIG}) : lancer avec sudo pour la comparer aux montages réels."
+        echo "Configuration not readable (${CONFIG}): run with sudo to compare it with the real mounts."
     fi
 }
 
@@ -675,14 +739,14 @@ render_json() {
     for row in "${SHOW_ROWS[@]}"; do
         IFS='|' read -r point type server path nets source fstype mopts state conf copts <<< "${row}"
 
-        if [[ "${state}" == 'démonté' ]]; then
+        if [[ "${state}" == 'not mounted' ]]; then
             mounted='false'
         else
             mounted='true'
         fi
-        if [[ "${state}" == 'monté, sain' ]]; then
+        if [[ "${state}" == 'mounted, healthy' ]]; then
             healthy='true'
-        elif [[ "${state}" == 'monté, MUET' ]]; then
+        elif [[ "${state}" == 'mounted, NOT RESPONDING' ]]; then
             healthy='false'
         else
             healthy='null'
@@ -720,6 +784,7 @@ render_json() {
 show_mounts() { # show_mounts [table|json]
     local mode="${1:-table}"
 
+    utf8_setup
     collect_mounts
     case "${mode}" in
         json) render_json ;;
@@ -749,6 +814,7 @@ main() {
     local action="${1:-}"
 
     case "${action}" in
+        -h|--help) help_text; return 0 ;;
         show)
             case "${2:-}" in
                 '')     show_mounts table ;;
