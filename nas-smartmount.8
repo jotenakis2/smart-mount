@@ -126,7 +126,10 @@ et
 sont ignorés par mount.cifs : le montage reste en
 .BR relatime .
 Le questionnaire propose d'ajouter les trois drapeaux manquants (il demande avant), et
-les met par défaut dans les deux profils.
+les met par défaut dans les deux profils. Pour un partage CIFS, il demande en plus le
+propriétaire local
+.RI ( uid:gid ),
+distinct du compte SMB : sans lui, mount.cifs monte en uid=0 et seul root peut écrire.
 CIFS a ses propres options utiles :
 .BR vers= ,
 .BR iocharset= ,

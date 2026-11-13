@@ -167,6 +167,21 @@ Un fichier de configuration d'une version antérieure (variables à plat
 `NFS_SERVER_IP`, `MOUNT_POINT`…) reste lisible : il est traité comme un seul partage
 NFS. Relancez `sudo make install` pour passer au nouveau format.
 
+### Deux identités sur un partage CIFS
+
+Ce ne sont pas les mêmes, et les confondre est la façon dont un partage finit lisible par
+personne :
+
+- **`username=` / `password=` / `domain=`** — le compte SMB, celui qui s'authentifie
+  auprès du serveur. Stocké dans le fichier d'identifiants.
+- **`uid=` / `gid=`** — le propriétaire local des fichiers une fois montés. Sans eux,
+  `mount.cifs` monte en `uid=0`, donc seul root peut écrire dans le partage.
+
+Le questionnaire demande les deux : le compte SMB quand le partage n'est pas invité, et
+le propriétaire local (`uid:gid`, par défaut celui qui a lancé `sudo` ou `pkexec`, lu
+dans `SUDO_UID` / `PKEXEC_UID`). Il écrit `uid=`/`gid=` dans les options, sans dupliquer
+ce qui y est déjà.
+
 ### Identifiants CIFS
 
 Le questionnaire demande un utilisateur, un mot de passe et un domaine facultatifs, et

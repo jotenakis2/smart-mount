@@ -164,6 +164,21 @@ A configuration file from an earlier version (flat `NFS_SERVER_IP`, `MOUNT_POINT
 still read: it is treated as a single NFS share. Re-run `sudo make install` to migrate
 to the new format.
 
+### Two identities on a CIFS share
+
+They are not the same thing, and mixing them up is how a share ends up readable by
+nobody:
+
+- **`username=` / `password=` / `domain=`** — the SMB account, the one that
+  authenticates against the server. Stored in the credentials file.
+- **`uid=` / `gid=`** — the local owner of the files once mounted. Without them,
+  `mount.cifs` mounts as `uid=0`, so only root can write into the share.
+
+The wizard asks for both: the SMB account when the share is not guest, and the local
+owner (`uid:gid`, defaulting to whoever ran `sudo` or `pkexec`, read from `SUDO_UID` /
+`PKEXEC_UID`). It writes `uid=`/`gid=` into the options, without duplicating values that
+are already there.
+
 ### CIFS credentials
 
 The wizard asks for an optional user name, password and domain, and writes them to
