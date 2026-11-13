@@ -28,7 +28,7 @@ another network, …).
 ## Behaviour
 
 ```
-nfs-smartmount.sh {show|mount|unmount|apply}
+nfs-smartmount.sh {show [--json]|mount|unmount|apply}
 ```
 
 For each configured share, independently:
@@ -65,8 +65,15 @@ shares are unaffected.
   ```
 
   State is `monté, sain`, `monté, MUET` (mounted but not answering) or `démonté`.
+  The last column shows the options retained in the configuration — the decision you
+  made — and not the kernel's per-mount string (`rsize`, `addr`, `sec`, `proto`…),
+  which changes on every mount and buries the useful part.
   It also works without root: the configuration is then unreadable, so only the real
   mounts are listed, with a note.
+- **`show --json`**: the same information as JSON, for a script or a graphical front
+  end. Each share carries `options` (as retained) and `runtime_options` (as reported
+  by the kernel), `state`, `mounted` and `healthy`. No `jq` dependency: the shell
+  builds the document, so it works on a machine where nothing else is installed.
 
 Exit codes: `1` mount failed, `2` unmount failed, `3` invalid usage or invalid share
 record, `4` a share has no target MAC, `5` missing runtime dependency (the message names
@@ -128,6 +135,11 @@ SHARES=(
 - **options**: passed as `-o` to `mount` (empty is allowed);
 - **mac**: the server's MAC address — without it the share is never mounted;
 - **credentials**: CIFS only, path to a credentials file (empty otherwise).
+- **networks** (optional): where this share may mount, separated by `;` or `,`.
+  Empty means the global `WIFI_NAME`; a single `*` means any network, the MAC alone
+  deciding. A share can therefore ignore your home Wi-Fi, accept two of them, or be
+  reachable from anywhere as long as the server is there. An SSID must not contain
+  `;` or `,` — that is the limit of the field.
 
 A configuration file from an earlier version (flat `NFS_SERVER_IP`, `MOUNT_POINT`, …) is
 still read: it is treated as a single NFS share. Re-run `sudo make install` to migrate
@@ -181,13 +193,29 @@ about the share — as long as it does not auto-mount at boot: with `noauto`, bo
 mounting is smart-mount's job (hook + timer). `make uninstall` leaves the rewrite in
 place; see Uninstall.
 
+## Running it without root
+
+`show` already works as a normal user. For the other verbs, `pkexec` is bound to a
+dedicated polkit action (`org.jotenakis.smartmount.manage`, installed with the rest):
+`pkexec nfs-smartmount.sh apply` asks for authentication in the desktop session
+instead of requiring a `sudo` terminal. It is not a privilege bypass — the mount
+specification comes from `/etc/smart-mount/config`, which stays `root:root`.
+
+If you want `show` to read the configuration too, give it a group of its own:
+
+```
+sudo groupadd -r smartmount
+sudo usermod -aG smartmount "$USER"
+sudo chgrp smartmount /etc/smart-mount/config    # mode 0640
+```
+
 ## Tests
 
 ```
 make check
 ```
 
-Runs `bash -n`, `shellcheck`, and 55 scenarios / 139 assertions with simulated commands
+Runs `bash -n`, `shellcheck`, and 62 scenarios / 168 assertions with simulated commands
 (`tests/run.sh`): nominal mount, server rebooted, busy mount point, unreadable SSID,
 unreachable server, flaky health check, expired `mountpoint`, `nmcli` fallback, SSID
 containing `:`, missing MAC (refusal, code 4), missing dependency (refusal, code 5, and
@@ -198,7 +226,10 @@ dry-run, both hooks (which must trigger `apply` and never unmount on their own),
 shares at once (one present, one absent; both present with different types), a CIFS
 mount, CIFS credentials (passed once, no duplicate), an invalid share type, an empty
 share list, the `show` output (healthy, mute, unmounted, foreign mount, unreadable
-configuration), and a legacy flat config file. Nothing touches the real system.
+configuration, retained options shown and kernel options hidden), `show --json`
+(valid document, `mounted`, `healthy`, credentials path never exposed), the accepted
+networks per share (refusal, list, `*`), and the forced NFS unmount (`umount -f` on
+NFS, never on CIFS). Nothing touches the real system.
 
 The identity check (ARP table + expected MAC) has been validated in dry-run against a
 real ARP entry. What is still not validated: a physical Ethernet link, and a real CIFS
@@ -216,7 +247,25 @@ server (`mount.cifs` is exercised through a stub only).
   that disappears can freeze accesses for as long as the RPC timeouts last. The hooks
   unmount on network loss, the timer repairs dead mounts, and the share options are
   yours to tune.
-- One network per machine: the SSID and the two interfaces are global, not per share.
+- Interface names are global, not per share: one Wi-Fi interface and one LAN interface
+  per machine. Only the list of accepted networks is per share.
+- `umount -f` (abandon pending RPCs) is only used on NFS. On CIFS it has no such
+  effect and can fail where a lazy unmount succeeds, so the lazy fallback applies.
+
+## Packaging
+
+`PKGBUILD` and `smart-mount.install` build an Arch package (`make install` under
+`DESTDIR`, with no interactive configuration during the build):
+
+```
+makepkg -si          # then: sudo smart-mount-setup
+```
+
+The rest of the packaging work is the same on any distribution: install
+`nfs-smartmount.8`, `org.jotenakis.smartmount.policy`, the two NetworkManager hooks,
+the unit and the timer. CI replays the test suite on Debian, Ubuntu, Fedora and Arch
+containers (`.github/workflows/check.yml`), because the failure modes we care about
+are bash and text-parsing differences, not `mount` itself.
 
 ## Uninstall
 
@@ -230,4 +279,5 @@ file, the CIFS credentials files and the `fstab` adjustment are left in place on
 
 ## TODO
 
-Per-share network rules (a share reachable only from another SSID).
+Nothing open on the functional side. Distribution side: publish the package on the
+AUR, then a `.deb` and an `.rpm` from the same files.

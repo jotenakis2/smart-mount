@@ -28,7 +28,7 @@ actifs (portable docké, Wi-Fi sur un autre réseau…).
 ## Comportement
 
 ```
-nfs-smartmount.sh {show|mount|unmount|apply}
+nfs-smartmount.sh {show [--json]|mount|unmount|apply}
 ```
 
 Pour chaque partage configuré, indépendamment :
@@ -66,8 +66,16 @@ les autres partages ne sont pas affectés.
   ```
 
   L'état vaut `monté, sain`, `monté, MUET` (monté mais ne répond plus) ou `démonté`.
+  La dernière colonne affiche les options **retenues dans la configuration** — ta
+  décision — et non la chaîne que le noyau rapporte pour chaque montage (`rsize`,
+  `addr`, `sec`, `proto`…), qui change à chaque fois et noie l'information utile.
   Il fonctionne aussi sans root : la configuration est alors illisible, seuls les
   montages réels sont listés, avec une note.
+- **`show --json`** : la même information en JSON, pour un script ou une interface
+  graphique. Chaque partage porte `options` (retenues) et `runtime_options` (celles
+  du noyau), `state`, `mounted` et `healthy`. Aucune dépendance à `jq` : le document
+  est construit par le shell, et fonctionne sur une machine où rien d'autre n'est
+  installé.
 
 Codes de sortie : `1` échec de montage, `2` échec de démontage, `3` usage invalide ou
 enregistrement de partage invalide, `4` un partage n'a pas de MAC cible, `5` dépendance
@@ -128,7 +136,12 @@ SHARES=(
 - **partage** : le chemin exporté en NFS, le nom du partage en CIFS ;
 - **options** : passées en `-o` à `mount` (vide autorisé) ;
 - **mac** : l'adresse MAC du serveur — sans elle, le partage n'est jamais monté ;
-- **identifiants** : CIFS uniquement, chemin du fichier d'identifiants (vide sinon).
+- **identifiants** : CIFS uniquement, chemin du fichier d'identifiants (vide sinon) ;
+- **réseaux** (facultatif) : où ce partage peut monter, séparés par `;` ou `,`.
+  Vide = le SSID global `WIFI_NAME` ; un seul `*` = n'importe quel réseau, la MAC
+  décidant seule. Un partage peut donc ignorer ton Wi-Fi domestique, en accepter
+  deux, ou être joignable partout tant que le serveur est là. Un SSID ne doit pas
+  contenir `;` ni `,` — c'est la limite du champ.
 
 Un fichier de configuration d'une version antérieure (variables à plat
 `NFS_SERVER_IP`, `MOUNT_POINT`…) reste lisible : il est traité comme un seul partage
@@ -184,13 +197,30 @@ doivent connaître le partage — à condition qu'elle ne se monte pas automatiq
 démarrage : avec `noauto`, c'est smart-mount qui monte au boot (hook + timer).
 `make uninstall` laisse cette réécriture en place ; voir Désinstallation.
 
+## Sans root
+
+`show` fonctionne déjà en tant qu'utilisateur. Pour les autres verbes, `pkexec` est
+relié à une action polkit dédiée (`org.jotenakis.smartmount.manage`, installée avec le
+reste) : `pkexec nfs-smartmount.sh apply` demande l'authentification dans la session
+graphique au lieu d'exiger un terminal `sudo`. Ce n'est pas un contournement de
+privilège — la spécification montée vient de `/etc/smart-mount/config`, qui reste
+`root:root`.
+
+Pour que `show` lise aussi la configuration, donne-lui un groupe :
+
+```
+sudo groupadd -r smartmount
+sudo usermod -aG smartmount "$USER"
+sudo chgrp smartmount /etc/smart-mount/config    # mode 0640
+```
+
 ## Tests
 
 ```
 make check
 ```
 
-Lance `bash -n`, `shellcheck` et 55 scénarios / 139 assertions avec des commandes
+Lance `bash -n`, `shellcheck` et 62 scénarios / 168 assertions avec des commandes
 simulées (`tests/run.sh`) : montage nominal, serveur redémarré, point de montage occupé,
 SSID illisible, serveur injoignable, test de santé instable, `mountpoint` expiré, repli
 `nmcli`, SSID contenant `:`, MAC absente (refus, code 4), dépendance absente (refus,
@@ -201,8 +231,12 @@ vide, mode dry-run, les deux hooks (qui doivent déclencher `apply` et jamais d�
 leur côté), plusieurs partages à la fois (un présent, un absent ; les deux présents avec
 des types différents), un montage CIFS, les identifiants CIFS (transmis une seule fois,
 sans doublon), un type de partage invalide, une liste de partages vide, un ancien
-fichier de configuration à plat, et la sortie de `show` (sain, muet, démonté, montage
-hors configuration, configuration illisible). Aucun accès au système réel.
+fichier de configuration à plat, la sortie de `show` (sain, muet, démonté, montage
+hors configuration, configuration illisible, options retenues affichées et options du
+noyau masquées), `show --json` (validité du document, `mounted`, `healthy`, chemin des
+identifiants jamais exposé), les réseaux autorisés par partage (refus, liste, `*`), et
+le démontage forcé NFS (`umount -f` sur NFS, jamais sur CIFS). Aucun accès au système
+réel.
 
 Le contrôle d'identité (table ARP + MAC attendue) a été validé en dry-run contre une
 entrée ARP réelle. Ce qui reste non validé : un lien Ethernet physique, et un vrai
@@ -220,8 +254,26 @@ serveur CIFS (`mount.cifs` n'est exercé qu'à travers un stub).
   serveur qui disparaît peut figer les accès aussi longtemps que durent les timeouts RPC.
   Les hooks démontent à la perte du réseau, le timer répare les montages morts, et les
   options des partages vous appartiennent.
-- Un seul réseau par machine : le SSID et les deux interfaces sont globaux, pas
-  par partage.
+- Les noms d'interface sont globaux, pas par partage : une interface Wi-Fi et une
+  interface LAN par machine. Seule la liste des réseaux acceptés est par partage.
+- `umount -f` (abandon des RPC en attente) n'est utilisé que sur NFS. Sur CIFS il n'a
+  pas cet effet et peut échouer là où un démontage paresseux réussit ; c'est donc le
+  repli paresseux qui s'applique.
+
+## Paquet
+
+`PKGBUILD` et `smart-mount.install` construisent un paquet Arch (`make install` sous
+`DESTDIR`, sans questionnaire pendant la construction) :
+
+```
+makepkg -si          # puis : sudo smart-mount-setup
+```
+
+Le reste du travail d'empaquetage est le même partout : installer
+`nfs-smartmount.8`, `org.jotenakis.smartmount.policy`, les deux hooks NetworkManager,
+l'unité et le timer. La CI rejoue la suite de tests sur des conteneurs Debian, Ubuntu,
+Fedora et Arch (`.github/workflows/check.yml`), parce que les pannes qui comptent ici
+sont des différences de bash et de parsing, pas de `mount`.
 
 ## Désinstallation
 
@@ -236,4 +288,5 @@ défaire à la main.
 
 ## TODO
 
-Règles réseau par partage (un partage joignable seulement depuis un autre SSID).
+Rien d'ouvert côté fonctionnel. Côté distribution : publier le paquet sur l'AUR, puis
+un `.deb` et un `.rpm` à partir des mêmes fichiers.
