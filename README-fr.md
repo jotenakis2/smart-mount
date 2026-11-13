@@ -19,7 +19,7 @@ Le SSID seul ne suffit pas : un point d'accès portant le même nom ailleurs ne 
 faire monter un partage. La MAC est l'identité du serveur, et elle est obligatoire — un
 partage sans MAC cible n'est jamais monté.
 
-**Une seule décision, à un seul endroit.** `nfs-smartmount.sh apply` porte toute la
+**Une seule décision, à un seul endroit.** `nas-smartmount.sh apply` porte toute la
 politique, pour chaque partage. Les deux hooks NetworkManager et le timer systemd ne
 décident plus rien : ils déclenchent cette politique. C'est ce qui empêche le hook Wi-Fi
 et le hook Ethernet de défaire mutuellement leur travail quand les deux liens sont
@@ -28,7 +28,7 @@ actifs (portable docké, Wi-Fi sur un autre réseau…).
 ## Comportement
 
 ```
-nfs-smartmount.sh {show [--json]|mount|unmount|apply|--version|--help}
+nas-smartmount.sh {show [--json]|mount|unmount|apply|setup|--version|--help}
 ```
 
 Pour chaque partage configuré, indépendamment :
@@ -54,12 +54,12 @@ les autres partages ne sont pas affectés.
 - **mode dry-run** : `SMARTMOUNT_DRY_RUN=1` évalue et journalise la décision pour chaque
   partage sans monter ni démonter. C'est ainsi qu'on contrôle un chemin réseau sur une
   machine qui n'en a pas :
-  `sudo SMARTMOUNT_DRY_RUN=1 /usr/local/bin/nfs-smartmount.sh apply`.
+  `sudo SMARTMOUNT_DRY_RUN=1 /usr/local/bin/nas-smartmount.sh apply`.
 - **`show`** : tableau en lecture seule des partages configurés et de ce qui est
   réellement monté, plus tout montage NFS/CIFS qui ne vient pas de la configuration :
 
   ```
-  $ sudo nfs-smartmount.sh show
+  $ sudo nas-smartmount.sh show
   TYPE  MOUNT POINT     SOURCE                             STATE             OPTIONS
   nfs   /media/NAS      192.168.50.85:/media/diskusb/data  mounted, healthy  nodev,nosuid,noexec,noatime,lazytime
   cifs  /media/NAS-smb  //192.168.50.85/usbdisk_data       mounted, healthy  guest,iocharset=utf8,uid=1000,gid=1000
@@ -72,7 +72,14 @@ les autres partages ne sont pas affectés.
   `addr`, `sec`, `proto`…), qui change à chaque fois et noie l'information utile.
   Il fonctionne aussi sans root : la configuration est alors illisible, seuls les
   montages réels sont listés, avec une note.
-- **`--version`** : une ligne, `smart-mount 1.9`, sans lire la configuration — la
+- **`setup`** : le questionnaire, désormais dans le même fichier. Il reprend la
+  configuration existante comme valeurs par défaut, détecte les interfaces et la MAC
+  de chaque serveur, écrit `/etc/smart-mount/config` (0640, l'ancienne conservée en
+  `.bak`) et neutralise les entrées `fstab` qui monteraient un partage en double.
+  Exige root : `sudo nas-smartmount.sh setup`, ou `pkexec nas-smartmount.sh setup`
+  depuis une session graphique. `smart-mount-setup` reste comme enveloppe de deux
+  lignes pour l'habitude.
+- **`--version`** : une ligne, `smart-mount 1.10`, sans lire la configuration — la
   ligne à coller dans un rapport de bug.
 - **`--help`** : aide courte en français, avec le format de configuration et les codes
   de sortie. C'est volontaire : journal, erreurs et sortie de `show` sont en anglais
@@ -204,11 +211,22 @@ doivent connaître le partage — à condition qu'elle ne se monte pas automatiq
 démarrage : avec `noauto`, c'est smart-mount qui monte au boot (hook + timer).
 `make uninstall` laisse cette réécriture en place ; voir Désinstallation.
 
+## Langue
+
+Journal, erreurs, `show` et questionnaire suivent la locale (`LC_ALL`, `LC_MESSAGES`,
+`LANG` ; deux lettres suffisent), anglais par défaut — un journal collé dans une issue
+reste lisible. `SMARTMOUNT_LANG=fr` force le français quelle que soit la locale. Les
+en-têtes et les états du tableau sont traduits ; **les valeurs de `show --json` ne le
+sont pas** (un script ne doit pas dépendre de qui l'appelle).
+
+La page de man existe dans les deux langues : `man 8 nas-smartmount` prend la page
+française quand la locale est française, l'anglaise sinon.
+
 ## Sans root
 
 `show` fonctionne déjà en tant qu'utilisateur. Pour les autres verbes, `pkexec` est
 relié à une action polkit dédiée (`org.jotenakis.smartmount.manage`, installée avec le
-reste) : `pkexec nfs-smartmount.sh apply` demande l'authentification dans la session
+reste) : `pkexec nas-smartmount.sh apply` demande l'authentification dans la session
 graphique au lieu d'exiger un terminal `sudo`. Ce n'est pas un contournement de
 privilège — la spécification montée vient de `/etc/smart-mount/config`, qui reste
 `root:root`.
@@ -224,13 +242,25 @@ sudo usermod -aG smartmount "$USER"
 sudo chgrp smartmount /etc/smart-mount/config    # mode 0640
 ```
 
+## Depuis la 1.9 et avant
+
+La commande s'appelle maintenant `nas-smartmount.sh` (elle gère aussi le SMB).
+`make install` conserve un lien `nfs-smartmount.sh`, et l'unité, les deux hooks et
+l'action polkit sont réécrits pour le `BINDIR` réel : une installation en paquet dans
+`/usr` ne pointe donc plus vers `/usr/local/bin`. `man nfs-smartmount` devient
+`man nas-smartmount`.
+
+Le questionnaire quitte `setup.sh` pour le script principal : un fichier, un catalogue
+de messages, un seul endroit qui connaît le format des enregistrements.
+`smart-mount-setup` fonctionne toujours.
+
 ## Tests
 
 ```
 make check
 ```
 
-Lance `bash -n`, `shellcheck` et 64 scénarios / 173 assertions avec des commandes
+Lance `bash -n`, `shellcheck` et 77 scénarios / 201 assertions avec des commandes
 simulées (`tests/run.sh`) : montage nominal, serveur redémarré, point de montage occupé,
 SSID illisible, serveur injoignable, test de santé instable, `mountpoint` expiré, repli
 `nmcli`, SSID contenant `:`, MAC absente (refus, code 4), dépendance absente (refus,
@@ -285,7 +315,7 @@ hash. La copie publiée sur l'AUR doit porter le vrai (`makepkg -g >> PKGBUILD`)
 `.SRCINFO` regénéré en conséquence.
 
 Le reste du travail d'empaquetage est le même partout : installer
-`nfs-smartmount.8`, `org.jotenakis.smartmount.policy`, les deux hooks NetworkManager,
+`nas-smartmount.8`, `org.jotenakis.smartmount.policy`, les deux hooks NetworkManager,
 l'unité et le timer. La CI rejoue la suite de tests sur des conteneurs Debian, Ubuntu,
 Fedora et Arch (`.github/workflows/check.yml`), parce que les pannes qui comptent ici
 sont des différences de bash et de parsing, pas de `mount`.

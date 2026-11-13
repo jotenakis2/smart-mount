@@ -19,7 +19,7 @@ The SSID alone is not enough: an access point with the same name somewhere else 
 not make a share mount. The MAC address is the server's identity, and it is mandatory
 — a share without a target MAC is never mounted.
 
-**One decision, one place.** `nfs-smartmount.sh apply` holds the whole policy, for
+**One decision, one place.** `nas-smartmount.sh apply` holds the whole policy, for
 every share. The two NetworkManager hooks and the systemd timer no longer decide
 anything: they trigger that policy. This is what stops the Wi-Fi hook and the Ethernet
 hook from undoing each other's work when both links are active (laptop docked, Wi-Fi on
@@ -28,7 +28,7 @@ another network, …).
 ## Behaviour
 
 ```
-nfs-smartmount.sh {show [--json]|mount|unmount|apply|--version|--help}
+nas-smartmount.sh {show [--json]|mount|unmount|apply|setup|--version|--help}
 ```
 
 For each configured share, independently:
@@ -53,12 +53,12 @@ shares are unaffected.
   if both fail.
 - **dry-run**: `SMARTMOUNT_DRY_RUN=1` evaluates and logs the decision for every share
   without mounting or unmounting. This is how a network path can be checked on a machine
-  that does not have it: `sudo SMARTMOUNT_DRY_RUN=1 /usr/local/bin/nfs-smartmount.sh apply`.
+  that does not have it: `sudo SMARTMOUNT_DRY_RUN=1 /usr/local/bin/nas-smartmount.sh apply`.
 - **`show`**: read-only table of the configured shares and of what is really mounted,
   plus any NFS/CIFS mount that does not come from the configuration:
 
   ```
-  $ sudo nfs-smartmount.sh show
+  $ sudo nas-smartmount.sh show
   TYPE  MOUNT POINT     SOURCE                             STATE             OPTIONS
   nfs   /media/NAS      192.168.50.85:/media/diskusb/data  mounted, healthy  nodev,nosuid,noexec,noatime,lazytime
   cifs  /media/NAS-smb  //192.168.50.85/usbdisk_data       mounted, healthy  guest,iocharset=utf8,uid=1000,gid=1000
@@ -71,7 +71,13 @@ shares are unaffected.
   which changes on every mount and buries the useful part.
   It also works without root: the configuration is then unreadable, so only the real
   mounts are listed, with a note.
-- **`--version`**: one line, `smart-mount 1.9`, and it does not read the
+- **`setup`**: the configuration wizard, now inside the same file. It reads the
+  current values as defaults, detects the interfaces and each server's MAC, writes
+  `/etc/smart-mount/config` (0640, previous one kept as `.bak`), and neutralises any
+  `fstab` entry that would double-mount a share. Needs root:
+  `sudo nas-smartmount.sh setup`, or `pkexec nas-smartmount.sh setup` from a desktop
+  session. `smart-mount-setup` remains as a two-line wrapper for the old habit.
+- **`--version`**: one line, `smart-mount 1.10`, and it does not read the
   configuration — the line to paste into a bug report.
 - **`--help`**: short French help with the configuration format and the exit codes.
   That is deliberate: logs, errors and `show` output are in English (they end up in
@@ -200,11 +206,22 @@ about the share — as long as it does not auto-mount at boot: with `noauto`, bo
 mounting is smart-mount's job (hook + timer). `make uninstall` leaves the rewrite in
 place; see Uninstall.
 
+## Language
+
+Log lines, errors, `show` and the wizard follow the locale (`LC_ALL`, `LC_MESSAGES`,
+`LANG`; two letters are enough), English by default — a journal pasted into an issue
+stays readable. `SMARTMOUNT_LANG=fr` forces French whatever the locale says. The table
+headers and states are translated; **`show --json` values are not** (a script must not
+depend on who calls it).
+
+The man page exists in both languages: `man 8 nas-smartmount` picks the French page
+when your locale is French, the English one otherwise.
+
 ## Running it without root
 
 `show` already works as a normal user. For the other verbs, `pkexec` is bound to a
 dedicated polkit action (`org.jotenakis.smartmount.manage`, installed with the rest):
-`pkexec nfs-smartmount.sh apply` asks for authentication in the desktop session
+`pkexec nas-smartmount.sh apply` asks for authentication in the desktop session
 instead of requiring a `sudo` terminal. It is not a privilege bypass — the mount
 specification comes from `/etc/smart-mount/config`, which stays `root:root`.
 Polkit reads actions from `/usr/share`, `/usr/local/share` and `/etc`; if the action
@@ -219,13 +236,23 @@ sudo usermod -aG smartmount "$USER"
 sudo chgrp smartmount /etc/smart-mount/config    # mode 0640
 ```
 
+## Upgrading from 1.9 and earlier
+
+The command is now `nas-smartmount.sh` (it handles SMB too). `make install` keeps a
+`nfs-smartmount.sh` symlink, and the unit, the two hooks and the polkit action are
+rewritten for the real `BINDIR`; a packaged install in `/usr` therefore no longer
+points at `/usr/local/bin`. `man nfs-smartmount` becomes `man nas-smartmount`.
+
+The wizard moved from `setup.sh` into the main script: one file, one message
+catalogue, one place that knows the record format. `smart-mount-setup` still works.
+
 ## Tests
 
 ```
 make check
 ```
 
-Runs `bash -n`, `shellcheck`, and 64 scenarios / 173 assertions with simulated commands
+Runs `bash -n`, `shellcheck`, and 77 scenarios / 201 assertions with simulated commands
 (`tests/run.sh`): nominal mount, server rebooted, busy mount point, unreadable SSID,
 unreachable server, flaky health check, expired `mountpoint`, `nmcli` fallback, SSID
 containing `:`, missing MAC (refusal, code 4), missing dependency (refusal, code 5, and
@@ -277,7 +304,7 @@ the AUR must carry the real one (`makepkg -g >> PKGBUILD`), and `.SRCINFO` must 
 regenerated to match.
 
 The rest of the packaging work is the same on any distribution: install
-`nfs-smartmount.8`, `org.jotenakis.smartmount.policy`, the two NetworkManager hooks,
+`nas-smartmount.8`, `org.jotenakis.smartmount.policy`, the two NetworkManager hooks,
 the unit and the timer. CI replays the test suite on Debian, Ubuntu, Fedora and Arch
 containers (`.github/workflows/check.yml`), because the failure modes we care about
 are bash and text-parsing differences, not `mount` itself.
