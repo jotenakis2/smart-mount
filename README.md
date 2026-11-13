@@ -317,6 +317,9 @@ server (`mount.cifs` is exercised through a stub only).
   that disappears can freeze accesses for as long as the RPC timeouts last. The hooks
   unmount on network loss, the timer repairs dead mounts, and the share options are
   yours to tune.
+- **Not planned**: several addresses for one share. A share holds one server address, so
+  a NAS that gets a different IP per network (DHCP leases) needs a reserved lease, not a
+  second record.
 - Interface names are global (one Wi-Fi, one LAN per machine); the **list of accepted
   networks is per share**, so the same NAS can mount at home and at your father's with
   a single record: `réseaux="Maison;ChezPapa"`. The wizard shows the SSIDs it can see

@@ -327,6 +327,9 @@ serveur CIFS (`mount.cifs` n'est exercé qu'à travers un stub).
   serveur qui disparaît peut figer les accès aussi longtemps que durent les timeouts RPC.
   Les hooks démontent à la perte du réseau, le timer répare les montages morts, et les
   options des partages vous appartiennent.
+- **Pas prévu** : plusieurs adresses pour un même partage. Un enregistrement porte une
+  adresse de serveur ; un NAS qui change d'IP selon le réseau (baux DHCP) relève d'un bail
+  réservé, pas d'un second enregistrement.
 - Les noms d'interface sont globaux (un Wi-Fi, un LAN par machine) ; la **liste des
   réseaux acceptés est par partage**, donc le même NAS monte chez toi et chez ton père
   avec un seul enregistrement : `réseaux="Maison;ChezPapa"`. Le questionnaire affiche
