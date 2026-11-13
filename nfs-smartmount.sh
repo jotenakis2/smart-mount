@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.0
+VER=1.2
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -36,11 +36,19 @@ trap_err() {
         1)   str="Error mounting ${NFS_SERVER_IP}:${NFS_SHAREDPATH} in ${MOUNT_POINT}";;
         2)   str="Error unmounting ${MOUNT_POINT}";;
         3)   str="${SCRIPT_NAME} syntax error - valid usage is : ${SCRIPT_NAME} {mount|unmount|apply}" ;;
+        4)   str="MAC cible absente de ${CONFIG}: aucun montage possible, renseigner NFS_SERVER_MAC (voir README)";;
         122) str="Missing config file (${CONFIG})";;
         127) str="Error ping test (${NFS_SERVER_IP}) before mounting ${NFS_SERVER_IP}:${NFS_SHAREDPATH} in ${MOUNT_POINT}";;
         *)   str="Unknown error";;
     esac
     log_err "${str}"
+}
+
+# SMARTMOUNT_DRY_RUN=1 évalue la politique et journalise la décision sans monter
+# ni démonter : le seul moyen de contrôler le chemin Ethernet sur une machine
+# qui n'en a pas.
+dry_run() {
+    [[ "${SMARTMOUNT_DRY_RUN:-0}" != "0" ]]
 }
 
 #-------------------------------------------------------------------------------------------------
@@ -91,6 +99,10 @@ mount_nfs() {
     fi
 
     if ping -c 1 -i 0.2 -W 2 -w 3 "${NFS_SERVER_IP}" &>/dev/null; then
+        if dry_run; then
+            log_notice "[dry-run] montage ${nfs_spec} -> ${MOUNT_POINT} non effectué"
+            return 0
+        fi
         if mount -t nfs -o "${NFS_OPTS}" -- "${nfs_spec}" "${MOUNT_POINT}" 2>/dev/null; then
             log_info "Montage réussi: ${nfs_spec} -> ${MOUNT_POINT}"
             return 0
@@ -124,6 +136,11 @@ unmount_nfs() {
     # 1 = franchement pas monté. 0 = monté. 124 = expiré, on tente quand même.
     if [[ ${mountpoint_rc} -eq 1 ]]; then
         log_notice "OK, déjà démonté: ${MOUNT_POINT}"
+        return 0
+    fi
+
+    if dry_run; then
+        log_notice "[dry-run] démontage de ${MOUNT_POINT} non effectué"
         return 0
     fi
 
@@ -198,34 +215,112 @@ get_current_wifi() {
     return 2
 }
 
-# Politique complète : monter si le réseau ciblé est actif, démonter sinon, ne
-# rien faire si l'état est inconnu. C'est le seul verbe que le timer doit
-# appeler, pour que le système converge dans les deux sens.
+get_neighbor_mac() {
+    local ip_addr="${1:-}"
+    local iface="${2:-}"
+    local out=''
+
+    [[ -n "${ip_addr}" ]] || return 1
+    command -v ip >/dev/null 2>&1 || return 1
+
+    if [[ -n "${iface}" ]]; then
+        out="$(ip neigh show "${ip_addr}" dev "${iface}" 2>/dev/null)"
+    else
+        out="$(ip neigh show "${ip_addr}" 2>/dev/null)"
+    fi
+
+    # La position de la MAC change selon les arguments : `ip neigh show IP`
+    # imprime « IP dev IF lladdr MAC ETAT » alors que `... IP dev IF` imprime
+    # « IP lladdr MAC ETAT ». On se place donc après le mot-clé, jamais sur $5.
+    printf '%s\n' "${out}" \
+        | awk '{ for (i = 1; i < NF; i++) if ($i == "lladdr") { print $(i + 1); exit } }'
+}
+
+refresh_neighbor() {
+    ping -c 1 -i 0.2 -W 2 -w 3 "${1:-}" >/dev/null 2>&1 || true
+}
+
+# Identité du serveur sur un lien : le voisin à l'adresse du NAS doit porter la
+# MAC cible. On l'exige sur les deux liens (Wi-Fi comme Ethernet) : le SSID seul
+# n'identifie pas un serveur, n'importe quel réseau du même nom ferait monter.
+# Sans entrée ARP on réveille le voisinage une fois puis on relit. Pas d'entrée
+# du tout = identité non vérifiée, donc pas de montage.
+# Limite connue : si le NAS est derrière un routeur (autre sous-réseau ou VLAN),
+# la MAC lue est celle du routeur ; c'est alors cette MAC qu'il faut configurer.
+neighbor_is_target() {
+    local iface="${1:-}"
+    local ip_addr="${NFS_SERVER_IP:-}"
+    local want="${NFS_SERVER_MAC:-}"
+    local mac=''
+
+    if [[ -z "${iface}" || -z "${ip_addr}" || -z "${want}" ]]; then
+        return 1
+    fi
+
+    mac="$(get_neighbor_mac "${ip_addr}" "${iface}")"
+    if [[ -z "${mac}" ]]; then
+        refresh_neighbor "${ip_addr}"
+        mac="$(get_neighbor_mac "${ip_addr}" "${iface}")"
+    fi
+
+    if [[ -z "${mac}" ]]; then
+        log_info "Aucun voisin à ${ip_addr} sur ${iface}: identité non vérifiée"
+        return 1
+    fi
+
+    if [[ "${mac,,}" != "${want,,}" ]]; then
+        log_notice "MAC détectée ${mac} sur ${iface}, attendue ${want}: identité refusée"
+        return 1
+    fi
+
+    log_notice "NAS confirmé: ${ip_addr} sur ${iface} (${mac})"
+    return 0
+}
+
+# Une seule décision pour les deux liens : chaque lien doit être à la fois le bon
+# réseau ET le bon serveur ; il suffit que l'un des deux le soit pour monter, et
+# il faut que les deux soient écartés sans ambiguïté pour démonter. Avant, chaque
+# hook décidait de son côté et pouvait défaire le travail de l'autre.
 apply_policy() {
     local ssid='' state=0
+
+    # Sans MAC cible, l'identité du serveur ne peut pas être vérifiée : on refuse
+    # de monter plutôt que de monter sur un inconnu. Code dédié (4).
+    if [[ -z "${NFS_SERVER_MAC:-}" ]]; then
+        return 4   # message dédié par trap_err
+    fi
 
     ssid="$(get_current_wifi)"
     state=$?
 
-    case "${state}" in
-        0)
-            if [[ "${ssid}" == "${WIFI_NAME}" ]]; then
-                log_info "Réseau ciblé (${ssid}): montage attendu"
-                mount_nfs
-            else
-                log_info "Réseau non ciblé (${ssid} ≠ ${WIFI_NAME}): montage non attendu"
-                unmount_nfs
-            fi
-            ;;
-        1)
-            log_info "Wi-Fi non connecté: montage non attendu"
-            unmount_nfs
-            ;;
-        *)
-            log_warning "SSID illisible: politique non applicable, aucune action"
-            return 0
-            ;;
-    esac
+    if [[ ${state} -eq 0 && "${ssid}" == "${WIFI_NAME}" ]]; then
+        if neighbor_is_target "${WIFI_IFACE:-}"; then
+            log_info "Wi-Fi ciblé (${ssid}) et NAS confirmé: montage attendu"
+            mount_nfs
+            return
+        fi
+        log_notice "Wi-Fi ciblé (${ssid}) mais NAS non confirmé: on regarde l'Ethernet"
+    fi
+
+    if neighbor_is_target "${LAN_IFACE:-}"; then
+        log_info "NAS confirmé sur Ethernet: montage attendu"
+        mount_nfs
+        return
+    fi
+
+    if [[ ${state} -eq 2 ]]; then
+        log_warning "SSID illisible et NAS non confirmé: aucune action"
+        return 0
+    fi
+
+    if [[ ${state} -eq 1 ]]; then
+        log_info "Ni Wi-Fi ciblé ni NAS confirmé sur Ethernet: montage non attendu"
+    elif [[ "${ssid}" == "${WIFI_NAME}" ]]; then
+        log_info "Wi-Fi ciblé (${ssid}) mais NAS non confirmé: montage non attendu"
+    else
+        log_info "Wi-Fi étranger (${ssid}) et NAS non confirmé sur Ethernet: montage non attendu"
+    fi
+    unmount_nfs
 }
 
 main() {
@@ -241,18 +336,20 @@ main() {
 
     case "${action}" in
         mount)
-            # Verbe historique, conservé pour les hooks : ne monte que si le
-            # Wi-Fi ciblé est actif.
+            # Verbe historique : monte si l'un des deux liens est à la fois le
+            # bon réseau et le bon serveur, mais ne démonte jamais.
+            if [[ -z "${NFS_SERVER_MAC:-}" ]]; then
+                return 4   # message dédié par trap_err
+            fi
             ssid="$(get_current_wifi)"
             state=$?
-            if [[ ${state} -ne 0 ]]; then
-                log_info "Réseau ciblé non confirmé (état ${state}), pas de NFS à monter"
-                return 0
-            fi
-            if [[ "${ssid}" == "${WIFI_NAME}" ]]; then
+            if [[ ${state} -eq 0 && "${ssid}" == "${WIFI_NAME}" ]] \
+                && neighbor_is_target "${WIFI_IFACE:-}"; then
+                mount_nfs
+            elif neighbor_is_target "${LAN_IFACE:-}"; then
                 mount_nfs
             else
-                log_info "WiFi non ciblé (${ssid} ≠ ${WIFI_NAME}), pas de NFS à monter"
+                log_info "Aucun lien confirmé, pas de NFS à monter"
                 return 0
             fi
             ;;

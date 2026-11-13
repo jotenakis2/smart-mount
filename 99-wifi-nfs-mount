@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
-readonly CONFIG="/etc/smart-mount/config"
+readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
 if [[ -f "${CONFIG}" ]]; then
 	# shellcheck source=/etc/smart-mount/config
 	source "${CONFIG}"
@@ -16,7 +16,7 @@ WIFI_IFACE="${WIFI_IFACE:-}"
 readonly DEVICE="${1:-}"
 readonly STATE="${2:-}"
 readonly SCRIPT_NAME="smartmount-wifi-nfs-NM_hook"
-readonly MAIN_SCRIPT="/usr/local/bin/nfs-smartmount.sh"
+readonly MAIN_SCRIPT="${SMARTMOUNT_MAIN:-/usr/local/bin/nfs-smartmount.sh}"
 
 log_info() {
     logger -t "${SCRIPT_NAME}" -p user.info -- "$*"
@@ -46,17 +46,12 @@ main() {
     log_info "Event: device=${DEVICE}, state=${STATE}"
 
     case "${STATE}" in
-        up|dhcp4-change|dhcp6-change|connectivity-change|reapply)
+        up|dhcp4-change|dhcp6-change|connectivity-change|reapply|down|vpn-down)
             # Le hook ne décide plus : il déclenche la politique unique du
-            # script principal, qui monte, démonte ou s'abstient selon l'état
-            # réseau complet (SSID ciblé, SSID illisible).
+            # script principal, qui regarde le Wi-Fi ET l'Ethernet. Un démontage
+            # unilatéral sur `down` défaisait le montage justifié par l'autre
+            # lien (portable docké, Wi-Fi coupé).
             "${MAIN_SCRIPT}" apply || log_err "Application de la politique smart-mount en échec"
-            ;;
-        down|vpn-down)
-            # Ici la coupure est un fait, pas une politique : on démonte sans
-            # dépendre de ce que répondra une lecture d'interface juste après.
-            log_notice "Lien WiFi coupé, démontage NFS"
-            "${MAIN_SCRIPT}" unmount || log_err "Démontage NFS en échec"
             ;;
         *)
             log_info "État ignoré: ${STATE}"

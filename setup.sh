@@ -56,8 +56,27 @@ main() {
 
 	# shellcheck disable=SC2310
 	DEFAULT_NFS_SERVER_MAC="$(get_nfs_server_mac "${NFS_SERVER_IP}" || true)"
-    NFS_SERVER_MAC="$(ask_input "LAN" "Adresse MAC du serveur NFS" "${DEFAULT_NFS_SERVER_MAC}")"
+    NFS_SERVER_MAC="$(ask_input "LAN" "Adresse MAC du serveur NFS (obligatoire : sans elle, aucun montage)" "${DEFAULT_NFS_SERVER_MAC}")"
     LAN_IFACE="$(ask_input "LAN" "Interface réseau Ethernet/LAN" "${DEFAULT_LAN_IFACE}")"
+
+    # La MAC est l'identité du serveur, sur les deux liens : sans elle le script
+    # refuse de monter (code 4). Autant l'expliquer ici plutôt que de laisser
+    # l'utilisateur découvrir un journal en erreur.
+    if [[ -z "${NFS_SERVER_MAC}" ]]; then
+        whiptail --title "smart-mount setup" --msgbox "Adresse MAC du NAS non détectée.
+
+Le NAS n'a pas répondu à l'adresse ${NFS_SERVER_IP} : impossible de lire son
+adresse MAC. Le montage automatique restera INACTIF tant qu'aucune MAC cible
+n'est configurée, en Wi-Fi comme en Ethernet.
+
+Pour la trouver :
+  - quand le NAS est joignable :  ip neigh show ${NFS_SERVER_IP}
+  - ou dans l'interface d'administration du NAS, ou la liste des baux DHCP
+    de la box
+
+Renseignez ensuite NFS_SERVER_MAC dans ${CONFIG_FILE}
+(ou relancez : sudo make install)." 22 78 || true
+    fi
 
     mkdir -p "${CONFIG_DIR}"
 	local backup="no"
@@ -197,17 +216,39 @@ find_lan_iface_fallback() {
 }
 # **************************************************************************************************************************************
 
+# Lit la MAC du NAS dans la table ARP (couche 2 : le montage n'a rien à voir).
+# La table est consultée d'abord : elle suffit quand le NAS a parlé récemment, et
+# un NAS qui filtre l'ICMP reste détectable. Le ping n'est qu'un secours.
+arp_mac_of() {
+    local ip="$1"
+    local out=''
+
+    command -v ip >/dev/null 2>&1 || return 0
+    out="$(ip neigh show "${ip}" 2>/dev/null)" || return 0
+
+    # `ip neigh show <ip>` imprime « IP dev IF lladdr MAC ETAT » ; selon les
+    # versions et les filtres, la position de la MAC varie. On se place donc
+    # après le mot-clé, jamais sur un numéro de champ.
+    printf '%s\n' "${out}" \
+        | awk '{ for (i = 1; i < NF; i++) if ($i == "lladdr") { print $(i + 1); exit } }'
+    return 0
+}
+
 get_nfs_server_mac() {
     local ip="$1"
-    local mac
+    local mac=''
 
-    # Essayer de remplir le cache ARP
-    ping -c 2 -i 0.2 -W 1 "${ip}" >/dev/null 2>&1 || return 1
+    mac="$(arp_mac_of "${ip}")"
 
-    # Récupérer la MAC via ARP
-    mac="$(ip neigh show "${ip}" | awk '/lladdr/ { print $5; exit }')" || return 1
+    if [[ -z "${mac}" ]]; then
+        ping -c 2 -i 0.2 -W 1 "${ip}" >/dev/null 2>&1 || true
+        mac="$(arp_mac_of "${ip}")"
+    fi
 
-    [[ -n "${mac}" ]] && printf '%s\n' "${mac}" || return 1
+    if [[ -n "${mac}" ]]; then
+        printf '%s\n' "${mac}"
+    fi
+    return 0
 }
 # **************************************************************************************************************************************
 
