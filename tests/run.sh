@@ -1144,6 +1144,26 @@ new_case modes_invalid
 out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_mode_opts "guest" nawak' _ "${SCRIPT}" 2>/dev/null )"
 check "modes : saisie invalide ignorée" "guest" "${out}"
 
+# 90-92. L'état Wi-Fi fait partie de la décision : il s'affiche avec les montages.
+new_case show_wifi_connected
+set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,rsize=1"
+write_config
+out="$(run_show)"
+check "show : ssid et cible affichés" oui "$(contains "${out}" 'Wi-Fi wlan0: Maison (expected: Maison)')"
+check "show : le tableau suit la ligne wifi" oui "$(contains "${out}" 'MOUNT POINT')"
+
+new_case show_wifi_disconnected
+stub iw 'printf "iw %s\n" "$*" >> "$CALLS"; printf "Not connected.\n"'
+write_config
+out="$(run_show)"
+check "show : wifi coupé signalé" oui "$(contains "${out}" 'not connected')"
+
+new_case show_wifi_json
+write_config
+out="$(run_show_json)"
+check "--json : bloc wifi" oui "$(contains "${out}" '"wifi": {"iface": "wlan0"')"
+check "--json : état wifi non traduit" oui "$(contains "${out}" '"state": "connected"')"
+
 # ---------------------------------------------------------------- summary
 
 printf '\n%d test(s) ok, %d échec(s)\n' "${PASS}" "${FAIL}"

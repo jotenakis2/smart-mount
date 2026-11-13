@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.15
+VER=1.16
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -114,6 +114,9 @@ msg() {
             ws_mac)               text='Adresse MAC de %s (obligatoire : sans elle, aucun montage)' ;;
             ws_mac_missing)       text='Aucune adresse MAC détectée pour %s.\n\nLe serveur n'"'"'a pas répondu : impossible de lire sa MAC. Ce partage ne sera PAS monté\ntant qu'"'"'aucune MAC cible n'"'"'est configurée, en Wi-Fi comme en Ethernet.\n\nPour la trouver :\n  - quand le serveur est joignable :  ip neigh show %s\n  - ou dans l'"'"'interface d'"'"'administration du NAS, ou les baux DHCP de la box\n\nRenseignez ensuite le 6e champ de ce partage dans /etc/smart-mount/config\n(ou relancez : sudo nas-smartmount.sh setup).' ;;
             ws_nets)              text='Réseaux autorisés, séparés par ; (vide = le SSID global, * = indifférent). Vus à l instant : %s' ;;
+            wifi_connected)       text='Wi-Fi %s : %s (attendu : %s)' ;;
+            wifi_disconnected)    text='Wi-Fi %s : non connecté' ;;
+            wifi_unknown)         text='Wi-Fi %s : état illisible' ;;
             ws_owner)             text='Propriétaire local des fichiers montés (uid:gid) — le compte SMB ci-dessous est une autre identité, celle qui s authentifie' ;;
             ws_modes)             text='Permissions des fichiers et des dossiers (file_mode:dir_mode, octal)' ;;
             ws_conflict)          text='Deux partages utilisent le même point de montage : %s\n\nCelui qui ne reconnaît pas le réseau démonterait le partage de l autre.\nDonne un point de montage distinct à chacun.' ;;
@@ -203,6 +206,9 @@ msg() {
             ws_mac)               text='MAC address of %s (mandatory: without it the share is never mounted)' ;;
             ws_mac_missing)       text='No MAC address detected for %s.\n\nThe server did not answer: its MAC address cannot be read. This share will NOT\nbe mounted until a target MAC is configured, over Wi-Fi as well as Ethernet.\n\nTo find it:\n  - while the server is reachable:  ip neigh show %s\n  - or in the NAS administration interface, or in the router'"'"'s DHCP leases\n\nThen fill in the 6th field of that share in /etc/smart-mount/config\n(or re-run: sudo nas-smartmount.sh setup).' ;;
             ws_nets)              text='Accepted networks, separated by ; (empty = the global SSID, * = any). Seen right now: %s' ;;
+            wifi_connected)       text='Wi-Fi %s: %s (expected: %s)' ;;
+            wifi_disconnected)    text='Wi-Fi %s: not connected' ;;
+            wifi_unknown)         text='Wi-Fi %s: unreadable' ;;
             ws_owner)             text='Local owner of the mounted files (uid:gid) — the SMB account below is a different identity, the one that authenticates' ;;
             ws_modes)             text='File and directory permissions (file_mode:dir_mode, octal)' ;;
             ws_conflict)          text='Two shares use the same mount point: %s\n\nThe one that does not recognise the network would unmount the other share.\nGive each of them its own mount point.' ;;
@@ -843,6 +849,7 @@ collect_mounts() {
     SHOW_HAVE_CONFIG=0
 
     load_config && SHOW_HAVE_CONFIG=1
+    collect_wifi
 
     local rec='' type='' server='' path='' mount='' spec='' nets='' opts=''
     local target='' source='' fstype='' mopts='' state=''
@@ -899,6 +906,24 @@ collect_mounts() {
     done < <(timeout 5 findmnt -t nfs,nfs4,cifs -no TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null)
 }
 
+# Le Wi-Fi fait partie de la décision : l'afficher à côté des montages évite d'aller
+# lire le journal pour comprendre pourquoi un partage n'est pas monté.
+collect_wifi() {
+    SHOW_WIFI_IFACE="${WIFI_IFACE:-}"
+    SHOW_WIFI_SSID=''
+    SHOW_WIFI_STATE='unknown'
+
+    local ssid='' rc=0
+    ssid="$(get_current_wifi)"
+    rc=$?
+
+    case "${rc}" in
+        0) SHOW_WIFI_SSID="${ssid}"; SHOW_WIFI_STATE='connected' ;;
+        1) SHOW_WIFI_STATE='disconnected' ;;
+        *) SHOW_WIFI_STATE='unknown' ;;
+    esac
+}
+
 render_table() {
     local row='' point='' type='' server='' path='' nets='' source='' fstype=''
     local mopts='' state='' conf='' copts=''
@@ -911,6 +936,14 @@ render_table() {
     local w_type=${#h_type} w_point=${#h_point} w_source=${#h_source} w_state=${#h_state}
     local -a cells=()
     local disp=''
+    local wifi_line=''
+
+    case "${SHOW_WIFI_STATE}" in
+        connected)    wifi_line="$(msg wifi_connected "${SHOW_WIFI_IFACE:-?}" "${SHOW_WIFI_SSID}" "${WIFI_NAME:-?}")" ;;
+        disconnected) wifi_line="$(msg wifi_disconnected "${SHOW_WIFI_IFACE:-?}")" ;;
+        *)            wifi_line="$(msg wifi_unknown "${SHOW_WIFI_IFACE:-?}")" ;;
+    esac
+    printf '%s\n\n' "${wifi_line}"
 
     for row in "${SHOW_ROWS[@]}"; do
         IFS='|' read -r point type server path nets source fstype mopts state conf copts <<< "${row}"
@@ -1028,6 +1061,9 @@ render_json() {
         printf '  "config": "%s",\n' "$(json_escape "${CONFIG}")"
         printf '  "config_readable": false,\n'
     fi
+    printf '  "wifi": {"iface": "%s", "ssid": "%s", "state": "%s", "expected": "%s"},\n' \
+        "$(json_escape "${SHOW_WIFI_IFACE}")" "$(json_escape "${SHOW_WIFI_SSID}")" \
+        "$(json_escape "${SHOW_WIFI_STATE}")" "$(json_escape "${WIFI_NAME:-}")"
     print_json_array shares 1 "${shares[@]}"
     print_json_array foreign 0 "${foreign[@]}"
     printf '}\n'

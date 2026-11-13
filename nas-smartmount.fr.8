@@ -44,6 +44,9 @@ quand le montage ne répond plus, ou
 et les options retenues dans la configuration.
 Tout montage NFS ou CIFS qui ne vient pas de la configuration apparaît en
 .IR "mounted (not in configuration)" .
+L'état Wi-Fi courant est affiché au-dessus du tableau : interface, SSID, et le SSID
+attendu par la configuration — de quoi expliquer un partage qui n'est pas monté sans
+aller lire le journal.
 Lecture seule : rien n'est monté, démonté ni journalisé.
 Fonctionne aussi sans root : la configuration est alors illisible, seuls les
 montages réels sont listés, et une note le dit.
@@ -66,7 +69,10 @@ Chaque partage porte
 .I mounted
 et
 .IR healthy .
-Le chemin des fichiers d'identifiants n'y apparaît jamais.
+Le chemin des fichiers d'identifiants n'y apparaît jamais, et l'état Wi-Fi courant est
+rapporté dans un objet
+.B wifi
+.RI ( iface ", " ssid ", " state ", " expected ).
 .TP
 .B apply
 Évalue la politique de chaque partage et monte, répare ou démonte selon le cas.
