@@ -152,6 +152,11 @@ SHARES=(
   `noexec` are enforced by the kernel on NFS as well as CIFS; `noatime` and `lazytime`
   are **ignored by `mount.cifs`** (the mount stays in `relatime`) — CIFS has its own
   options: `vers=`, `iocharset=`, `uid=`, `gid=`, `file_mode=`, `dir_mode=`.
+  **NFS has no client-side equivalent of those four**: ownership and permissions are the
+  ones stored on the server. NFSv4 adds name mapping (`rpc.idmapd`, same domain on both
+  sides); without it, or when the ids do not line up, files show up as numeric ids or as
+  `nobody`. Mapping everything to one user is a *server-side* export option
+  (`all_squash,anonuid=…,anongid=…`) or its NAS equivalent — not a mount option.
   The wizard proposes adding `nodev,nosuid,noexec` when your line lacks them, and
   asks first: a network share that allows execution or setuid binaries is a risk
   nobody has a reason to accept by default;

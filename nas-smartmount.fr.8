@@ -1,4 +1,4 @@
-.TH NAS-SMARTMOUNT 8 "2026-11-13" "smart-mount 1.21" "Manuel d'administration système"
+.TH NAS-SMARTMOUNT 8 "2026-11-13" "smart-mount 1.22" "Manuel d'administration système"
 .SH NOM
 nas-smartmount \- monter des partages NFS et CIFS seulement sur le bon réseau,
 depuis le bon serveur
@@ -121,6 +121,19 @@ les met par défaut dans les deux profils. Pour un partage CIFS, il demande en p
 et le propriétaire local
 .RI ( uid:gid ),
 distinct du compte SMB : sans lui, mount.cifs monte en uid=0 et seul root peut écrire.
+NFS n'a pas d'équivalent côté client pour les quatre dernières : la propriété et les
+permissions sont celles stockées sur le serveur.
+NFSv4 ajoute une correspondance par nom
+.RB ( rpc.idmapd ,
+même domaine des deux côtés) ; sans elle, ou quand les identifiants ne correspondent pas,
+les fichiers apparaissent en identifiants numériques ou en
+.IR nobody .
+Tout ramener à un utilisateur est une option d'export côté serveur
+.RB ( all_squash ,
+.BR anonuid= ,
+.BR anongid= )
+ou son équivalent dans l'interface du NAS, pas une option de montage.
+.PP
 CIFS a ses propres options utiles :
 .BR vers= ,
 .BR iocharset= ,

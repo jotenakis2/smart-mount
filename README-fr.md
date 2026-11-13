@@ -155,6 +155,13 @@ SHARES=(
   `noexec` sont appliqués par le noyau, en NFS comme en CIFS ; `noatime` et `lazytime`
   sont **ignorés par `mount.cifs`** (le montage reste en `relatime`) — côté CIFS, les
   options utiles sont `vers=`, `iocharset=`, `uid=`, `gid=`, `file_mode=`, `dir_mode=` ;
+  **NFS n'a pas d'équivalent côté client pour ces quatre options** : la propriété et les
+  permissions sont celles stockées sur le serveur. NFSv4 ajoute une correspondance par nom
+  (`rpc.idmapd`, même domaine des deux côtés) ; sans elle, ou quand les identifiants ne
+  correspondent pas, les fichiers apparaissent en identifiants numériques ou en `nobody`.
+  Tout ramener à un utilisateur est une option d'**export côté serveur**
+  (`all_squash,anonuid=…,anongid=…`) ou son équivalent dans l'interface du NAS — pas une
+  option de montage.
   le questionnaire propose d'ajouter `nodev,nosuid,noexec` quand ta ligne ne les a pas,
   et demande avant : un partage réseau qui autorise l'exécution ou les binaires setuid
   est un risque qu'on n'a aucune raison d'accepter par défaut ;

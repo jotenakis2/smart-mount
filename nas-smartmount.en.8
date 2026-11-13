@@ -1,4 +1,4 @@
-.TH NAS-SMARTMOUNT 8 "2026-11-13" "smart-mount 1.21" "System Administration Manual"
+.TH NAS-SMARTMOUNT 8 "2026-11-13" "smart-mount 1.22" "System Administration Manual"
 .SH NAME
 nas-smartmount \- mount NFS and CIFS shares only on the right network, from the
 right server
@@ -149,6 +149,19 @@ CIFS has its own options:
 .BR gid= ,
 .BR file_mode= ,
 .BR dir_mode= .
+.PP
+NFS has no client-side equivalent of the last four: ownership and permissions are the ones
+stored on the server.
+NFSv4 adds name mapping
+.RB ( rpc.idmapd ,
+same domain on both sides); without it, or when the ids do not line up, files appear as
+numeric ids or as
+.IR nobody .
+Mapping everything to one user is a server-side export option
+.RB ( all_squash ,
+.BR anonuid= ,
+.BR anongid= )
+or its NAS equivalent, not a mount option.
 .TP
 .I mac
 MAC address of the server.
