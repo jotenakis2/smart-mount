@@ -1024,6 +1024,20 @@ backups="$(find "${CASE_DIR}" -maxdepth 1 -name 'fstab.smart-mount.bak.*' | wc -
 check "fstab : aucune correspondance, fichier intact" oui "$(contains "${after}" "${before}")"
 check "fstab : aucune sauvegarde inutile" 0 "${backups}"
 
+# 78-80. nodev,nosuid,noexec : complétés sans doublon, quel que soit ce que
+# l'utilisateur a saisi (ce sont des drapeaux du noyau, valables aussi en CIFS).
+new_case safe_opts_empty
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_safe_opts ""' _ "${SCRIPT}" 2>/dev/null )"
+check "options vides : les trois ajoutés" "nodev,nosuid,noexec" "${out}"
+
+new_case safe_opts_partial
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_safe_opts "guest,vers=3.0,noexec"' _ "${SCRIPT}" 2>/dev/null )"
+check "options partielles : complétées à la fin" "guest,vers=3.0,noexec,nodev,nosuid" "${out}"
+
+new_case safe_opts_complete
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_safe_opts "nodev,nosuid,noexec,uid=1000"' _ "${SCRIPT}" 2>/dev/null )"
+check "options complètes : inchangées" "nodev,nosuid,noexec,uid=1000" "${out}"
+
 # ---------------------------------------------------------------- summary
 
 printf '\n%d test(s) ok, %d échec(s)\n' "${PASS}" "${FAIL}"

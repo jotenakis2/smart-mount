@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.10.1
+VER=1.11
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -114,6 +114,7 @@ msg() {
             ws_mac)               text='Adresse MAC de %s (obligatoire : sans elle, aucun montage)' ;;
             ws_mac_missing)       text='Aucune adresse MAC détectée pour %s.\n\nLe serveur n'"'"'a pas répondu : impossible de lire sa MAC. Ce partage ne sera PAS monté\ntant qu'"'"'aucune MAC cible n'"'"'est configurée, en Wi-Fi comme en Ethernet.\n\nPour la trouver :\n  - quand le serveur est joignable :  ip neigh show %s\n  - ou dans l'"'"'interface d'"'"'administration du NAS, ou les baux DHCP de la box\n\nRenseignez ensuite le 6e champ de ce partage dans /etc/smart-mount/config\n(ou relancez : sudo nas-smartmount.sh setup).' ;;
             ws_nets)              text='Réseaux autorisés, séparés par ; (vide = le SSID global, * = indifférent)' ;;
+            ws_harden_opts)       text='Ajouter les protections nodev,nosuid,noexec ?\n\nSaisi  : %s\nProposé : %s\n\nCe sont des drapeaux du noyau, valables en NFS comme en CIFS : sans eux, un\npartage réseau peut servir à exécuter un binaire ou à monter un fichier setuid.' ;;
             ws_saved)             text='Configuration enregistrée dans %s' ;;
             ws_saved_backup)      text='Configuration enregistrée dans %s\n\nPrécédente configuration conservée dans :\n%s' ;;
             ws_fstab)             text='Une ou plusieurs entrées %s correspondant à vos partages ont reçu l'"'"'option noauto\n(et perdu x-systemd.automount).\n\nElles ne se montent plus au démarrage : c'"'"'est smart-mount qui s'"'"'en charge, depuis le\nhook réseau et le timer.\n\nSauvegarde : %s' ;;
@@ -199,6 +200,7 @@ msg() {
             ws_mac)               text='MAC address of %s (mandatory: without it the share is never mounted)' ;;
             ws_mac_missing)       text='No MAC address detected for %s.\n\nThe server did not answer: its MAC address cannot be read. This share will NOT\nbe mounted until a target MAC is configured, over Wi-Fi as well as Ethernet.\n\nTo find it:\n  - while the server is reachable:  ip neigh show %s\n  - or in the NAS administration interface, or in the router'"'"'s DHCP leases\n\nThen fill in the 6th field of that share in /etc/smart-mount/config\n(or re-run: sudo nas-smartmount.sh setup).' ;;
             ws_nets)              text='Accepted networks, separated by ; (empty = the global SSID, * = any)' ;;
+            ws_harden_opts)       text='Add the nodev,nosuid,noexec protections?\n\nEntered  : %s\nProposed : %s\n\nThese are kernel flags, valid for NFS as well as CIFS: without them a network\nshare can be used to run a binary or to mount a setuid file.' ;;
             ws_saved)             text='Configuration written to %s' ;;
             ws_saved_backup)      text='Configuration written to %s\n\nPrevious configuration kept in:\n%s' ;;
             ws_fstab)             text='One or more %s entries matching your shares received the noauto option\n(and lost x-systemd.automount).\n\nThey will no longer mount at boot: smart-mount does it, from the network hook\nand the timer.\n\nBackup: %s' ;;
@@ -1262,6 +1264,39 @@ safe_field() {
     return 0
 }
 
+# nodev,nosuid,noexec : ce sont des drapeaux du noyau (VFS), donc valables en NFS
+# comme en CIFS — vérifié : sur un montage cifs, noexec refuse réellement
+# l'exécution. Un partage réseau qui autorise l'exécution ou les binaires setuid est
+# un risque qu'on n'a aucune raison d'accepter par défaut.
+ensure_safe_opts() { # ensure_safe_opts <options> -> options + les trois drapeaux manquants
+    local opts="${1:-}"
+    local flag=''
+    local -a missing=()
+
+    for flag in nodev nosuid noexec; do
+        case ",${opts}," in
+            *",${flag},"*) : ;;
+            *) missing+=("${flag}") ;;
+        esac
+    done
+
+    for flag in "${missing[@]}"; do
+        opts="${opts:+${opts},}${flag}"
+    done
+
+    printf '%s' "${opts}"
+}
+
+ask_yesno() { # ask_yesno <titre> <question> -> 0 si oui
+    local title="$1"
+    local prompt="$2"
+
+    if whiptail --title "${title}" --yesno "${prompt}" 12 78; then
+        return 0
+    fi
+    return 1
+}
+
 ask_input() {
     local title="$1"
     local prompt="$2"
@@ -1352,7 +1387,7 @@ ask_cifs_creds() { # ask_cifs_creds <numéro> <serveur> ; -> chemin du fichier o
 
 ask_share() { # ask_share <numéro> -> "type|serveur|partage|point|options|mac|creds"
     local num="$1"
-    local type server path mount opts mac creds=''
+    local type server path mount opts mac creds='' safe_opts=''
     local default_server='' defaults='' mount_default='' opts_default=''
 
     type="$(ask_menu "$(msg ws_share_title "${num}")" "$(msg ws_type "${num}")" \
@@ -1384,6 +1419,16 @@ ask_share() { # ask_share <numéro> -> "type|serveur|partage|point|options|mac|c
 
     mount="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_mount)" "${mount_default}")"
     opts="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_opts)" "${opts_default}")"
+
+    # Les trois drapeaux ne sont pas seulement une valeur par défaut : celui qui
+    # édite la ligne d'options ne doit pas pouvoir les perdre par inadvertance.
+    safe_opts="$(ensure_safe_opts "${opts}")"
+    if [[ "${safe_opts}" != "${opts}" ]]; then
+        if ask_yesno "$(msg ws_share_title "${num}")" \
+            "$(msg ws_harden_opts "${opts}" "${safe_opts}")"; then
+            opts="${safe_opts}"
+        fi
+    fi
 
     if [[ "${type}" = "cifs" ]]; then
         creds="$(ask_cifs_creds "${num}" "${server}")"
