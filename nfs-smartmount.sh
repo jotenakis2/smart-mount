@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.6
+VER=1.7
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -67,7 +67,7 @@ trap_err() {
     case "${exit_code}" in
         1)   str="Error mounting a share (see the log lines above)";;
         2)   str="Error unmounting a mount point (see the log lines above)";;
-        3)   str="${SCRIPT_NAME} syntax error - valid usage is : ${SCRIPT_NAME} {show|mount|unmount|apply}" ;;
+        3)   str="${SCRIPT_NAME} syntax error - valid usage is : ${SCRIPT_NAME} {show [--json]|mount|unmount|apply}" ;;
         4)   str="MAC cible absente pour un partage: refus de monter (voir README)";;
         5)   str="Dépendance(s) manquante(s): ${MISSING_DEPS} — voir README, section Requirements";;
         122) str="Configuration absente ou sans partage (${CONFIG})";;
@@ -244,6 +244,30 @@ umount_lazy() { # umount_lazy <point>
     return 2
 }
 
+# `umount -f` n'a de sens que sur NFS : il abandonne les RPC en attente, donc il
+# rend la main immédiatement quand le serveur ne répond plus — c'est le cas qui
+# fige un shell, et `umount` simple y attend le timeout complet. Sur CIFS il n'a
+# pas cet effet et peut échouer là où `umount -l` réussit : on ne le tente que
+# si findmnt confirme un montage nfs.
+umount_forced() { # umount_forced <point>
+    local mount="${1:-}"
+    local fstype=''
+
+    fstype="$(timeout 5 findmnt -M "${mount}" -no FSTYPE 2>/dev/null)"
+    case "${fstype}" in
+        nfs*) : ;;
+        *)    return 1 ;;
+    esac
+
+    log_warning "[${mount}] serveur muet, repli forcé (umount -f : RPC abandonnés)"
+    if timeout 10 umount -f -- "${mount}" 2>/dev/null; then
+        log_notice "[${mount}] démontage forcé effectué"
+        return 0
+    fi
+    return 1
+}
+
+
 unmount_one() { # unmount_one <point>
     local mount="${1:-}"
     local mountpoint_rc=0
@@ -266,6 +290,12 @@ unmount_one() { # unmount_one <point>
         return 0
     fi
 
+    # Avant le repli paresseux : si le serveur est muet, `umount` vient de perdre
+    # dix secondes à attendre des RPC. `-f` les abandonne et libère le montage.
+    if umount_forced "${mount}"; then
+        return 0
+    fi
+
     # Cas courant : un shell ou un IDE ouvert dans le partage. Sans ce repli le
     # portable part avec un montage dur actif et fige au prochain accès.
     log_warning "[${mount}] démontage bloqué (point occupé ?), repli paresseux"
@@ -275,6 +305,7 @@ unmount_one() { # unmount_one <point>
 
     return 2
 }
+
 
 mount_one() { # mount_one <type> <serveur> <partage> <point> <options> <identifiants>
     local type="${1:-}"
@@ -358,6 +389,30 @@ mount_one() { # mount_one <type> <serveur> <partage> <point> <options> <identifi
     return 1
 }
 
+# Réseaux autorisés pour un partage (8e champ, `;` ou `,` comme séparateur) :
+#   vide  -> le SSID global WIFI_NAME (comportement d'avant la 1.7)
+#   *     -> n'importe quel réseau, l'identité du serveur (MAC) fait foi seule
+# Un SSID ne doit donc pas contenir `;` ni `,` : c'est la limite du format.
+net_matches() { # net_matches <réseaux> <ssid>
+    local nets="${1-}"
+    local ssid="${2-}"
+    local item=''
+    local -a items=()
+
+    if [[ -z "${nets}" ]]; then
+        [[ "${ssid}" == "${WIFI_NAME}" ]]
+        return
+    fi
+
+    mapfile -t items < <(printf '%s' "${nets}" | tr ';,' '\n')
+    for item in "${items[@]}"; do
+        if [[ "${item}" == '*' || "${item}" == "${ssid}" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Politique d'un partage : chaque lien doit être à la fois le bon réseau ET le bon
 # serveur. Il suffit que l'un des deux le soit pour monter ; il faut que les deux
 # soient écartés sans ambiguïté pour démonter. En mode `mount` on ne démonte jamais.
@@ -367,7 +422,7 @@ apply_share() { # apply_share <record> <ssid> <état wifi> <apply|mount>
     local state="${3:-2}"
     local mode="${4:-apply}"
 
-    local type='' server='' path='' mount='' opts='' mac='' creds=''
+    local type='' server='' path='' mount='' opts='' mac='' creds='' nets=''
     type="$(share_field "${record}" 1)"
     server="$(share_field "${record}" 2)"
     path="$(share_field "${record}" 3)"
@@ -375,6 +430,7 @@ apply_share() { # apply_share <record> <ssid> <état wifi> <apply|mount>
     opts="$(share_field "${record}" 5)"
     mac="$(share_field "${record}" 6)"
     creds="$(share_field "${record}" 7)"
+    nets="$(share_field "${record}" 8)"
 
     if [[ -z "${type}" || -z "${server}" || -z "${path}" || -z "${mount}" ]]; then
         log_err "Enregistrement de partage invalide: ${record}"
@@ -392,7 +448,7 @@ apply_share() { # apply_share <record> <ssid> <état wifi> <apply|mount>
         return 4
     fi
 
-    if [[ ${state} -eq 0 && "${ssid}" == "${WIFI_NAME}" ]] \
+    if [[ ${state} -eq 0 ]] && net_matches "${nets}" "${ssid}" \
         && neighbor_is_target "${WIFI_IFACE:-}" "${server}" "${mac}"; then
         log_info "[${mount}] Wi-Fi ciblé (${ssid}) et ${server} confirmé: montage attendu"
         mount_one "${type}" "${server}" "${path}" "${mount}" "${opts}" "${creds}"
@@ -415,7 +471,7 @@ apply_share() { # apply_share <record> <ssid> <état wifi> <apply|mount>
         return 0
     fi
 
-    if [[ ${state} -eq 0 && "${ssid}" == "${WIFI_NAME}" ]]; then
+    if [[ ${state} -eq 0 ]] && net_matches "${nets}" "${ssid}"; then
         log_info "[${mount}] Wi-Fi ciblé mais ${server} non confirmé: montage non attendu"
     else
         log_info "[${mount}] réseau non reconnu pour ${server}: montage non attendu"
@@ -457,86 +513,221 @@ unmount_all() {
 # findmnt (borné) et le test de santé. Fonctionne aussi sans les droits root :
 # la configuration est alors illisible et seule la partie « montages réels »
 # s'affiche, avec une note.
-show_mounts() {
-    local have_config=0
-    local rec='' type='' server='' path='' mount='' spec=''
-    local target='' source='' fstype='' opts='' state=''
-    local row='' rtype='' rpoint='' rsource='' rstate=''
-    local h_type='TYPE' h_point='POINT DE MONTAGE' h_source='SOURCE' h_state='ÉTAT'
-    local w_type=0 w_point=0 w_source=0
-    local -a rows=()
-    local -a configured=()
-    local known=0 point=''
 
-    load_config && have_config=1
+# ------------------------------------------------------------------- show
+# `show` décrit ce qui est monté, jamais la décision : aucune fonction de
+# politique n'est appelée, rien n'est monté ni démonté, et aucun log n'est émis.
+# Deux rendus pour une seule collecte : un tableau pour l'œil, du JSON pour un
+# script ou une interface.
+json_escape() { # json_escape <texte>
+    local s="${1-}"
+
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\t'/\\t}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    printf '%s' "${s}"
+}
+
+# Une ligne de SHOW_ROWS, onze champs :
+#   point|type|serveur|partage|réseaux|source|fstype|options du noyau|état|configuré|options retenues
+# Les « options retenues » sont celles de l'enregistrement : c'est la décision de
+# l'utilisateur, stable et lisible, alors que les options du noyau (rsize, addr,
+# proto, sec…) changent à chaque montage et noient l'information.
+collect_mounts() {
+    SHOW_ROWS=()
+    SHOW_HAVE_CONFIG=0
+
+    load_config && SHOW_HAVE_CONFIG=1
+
+    local rec='' type='' server='' path='' mount='' spec='' nets='' opts=''
+    local target='' source='' fstype='' mopts='' state=''
+    local known=0 point=''
+    local -a configured=()
 
     for rec in "${SHARES[@]}"; do
         type="$(share_field "${rec}" 1)"
         server="$(share_field "${rec}" 2)"
         path="$(share_field "${rec}" 3)"
         mount="$(share_field "${rec}" 4)"
+        opts="$(share_field "${rec}" 5)"
+        nets="$(share_field "${rec}" 8)"
         spec="$(share_spec "${type}" "${server}" "${path}")"
         configured+=("${mount}")
 
-        target='' source='' fstype='' opts=''
-        if read -r target source fstype opts < <(timeout 5 findmnt -M "${mount}" -no TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null) \
+        target='' source='' fstype='' mopts=''
+        if read -r target source fstype mopts \
+            < <(timeout 5 findmnt -M "${mount}" -no TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null) \
             && [[ -n "${target}" ]]; then
             if mount_is_healthy "${mount}"; then
                 state='monté, sain'
             else
                 state='monté, MUET'
             fi
-            rows+=("${type}|${mount}|${source}|${state}")
+            SHOW_ROWS+=("$(printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s' \
+                "${mount}" "${type}" "${server}" "${path}" "${nets}" \
+                "${source}" "${fstype}" "${mopts}" "${state}" '1' "${opts}")")
         else
-            rows+=("${type}|${mount}|${spec}|démonté")
+            # Non monté : la source et les options affichées sont celles que le
+            # partage aurait eues, pour que l'écart soit lisible.
+            SHOW_ROWS+=("$(printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s' \
+                "${mount}" "${type}" "${server}" "${path}" "${nets}" \
+                "${spec}" '' '' 'démonté' '1' "${opts}")")
         fi
     done
 
-    while read -r target source fstype opts; do
+    # Montages nfs/cifs qui ne viennent pas de la configuration : c'est le signal
+    # d'un second mécanisme (fstab, montage manuel, automount) sur le même point.
+    while read -r target source fstype mopts; do
         [[ -n "${target}" ]] || continue
         known=0
         for point in "${configured[@]}"; do
             [[ "${point}" == "${target}" ]] && known=1
         done
         [[ ${known} -eq 1 ]] && continue
-        if [[ ${have_config} -eq 1 ]]; then
-            rows+=("${fstype}|${target}|${source}|monté (hors configuration)")
+        if [[ ${SHOW_HAVE_CONFIG} -eq 1 ]]; then
+            state='monté (hors configuration)'
         else
-            rows+=("${fstype}|${target}|${source}|monté")
+            state='monté'
         fi
+        SHOW_ROWS+=("$(printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s' \
+            "${target}" "${fstype}" '' '' '' "${source}" "${fstype}" "${mopts}" "${state}" '0' '')")
     done < <(timeout 5 findmnt -t nfs,nfs4,cifs -no TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null)
+}
 
-    w_type=${#h_type}
-    w_point=${#h_point}
-    w_source=${#h_source}
+render_table() {
+    local row='' point='' type='' server='' path='' nets='' source='' fstype=''
+    local mopts='' state='' conf='' copts=''
+    local h_type='TYPE' h_point='POINT DE MONTAGE' h_source='SOURCE' h_state='ÉTAT' h_opts='OPTIONS'
+    local w_type=${#h_type} w_point=${#h_point} w_source=${#h_source} w_state=${#h_state}
+    local -a cells=()
 
-    for row in "${rows[@]}"; do
-        IFS='|' read -r rtype rpoint rsource rstate <<< "${row}"
-        (( ${#rtype} > w_type )) && w_type=${#rtype}
-        (( ${#rpoint} > w_point )) && w_point=${#rpoint}
-        (( ${#rsource} > w_source )) && w_source=${#rsource}
+    for row in "${SHOW_ROWS[@]}"; do
+        IFS='|' read -r point type server path nets source fstype mopts state conf copts <<< "${row}"
+        cells+=("${type}|${point}|${source}|${state}|${copts}")
+        (( ${#type} > w_type )) && w_type=${#type}
+        (( ${#point} > w_point )) && w_point=${#point}
+        (( ${#source} > w_source )) && w_source=${#source}
+        (( ${#state} > w_state )) && w_state=${#state}
     done
 
-    printf '%-*s  %-*s  %-*s  %s\n' "${w_type}" "${h_type}" "${w_point}" "${h_point}" \
-        "${w_source}" "${h_source}" "${h_state}"
-
-    for row in "${rows[@]}"; do
-        IFS='|' read -r rtype rpoint rsource rstate <<< "${row}"
-        printf '%-*s  %-*s  %-*s  %s\n' "${w_type}" "${rtype}" "${w_point}" "${rpoint}" \
-            "${w_source}" "${rsource}" "${rstate}"
+    printf '%-*s  %-*s  %-*s  %-*s  %s\n' \
+        "${w_type}" "${h_type}" "${w_point}" "${h_point}" "${w_source}" "${h_source}" \
+        "${w_state}" "${h_state}" "${h_opts}"
+    for row in "${cells[@]}"; do
+        IFS='|' read -r type point source state copts <<< "${row}"
+        printf '%-*s  %-*s  %-*s  %-*s  %s\n' \
+            "${w_type}" "${type}" "${w_point}" "${point}" "${w_source}" "${source}" \
+            "${w_state}" "${state}" "${copts:--}"
     done
 
-    if [[ ${#rows[@]} -eq 0 ]]; then
-        echo "(aucun montage nfs/cifs actif)"
+    if [[ ${#SHOW_ROWS[@]} -eq 0 ]]; then
+        echo '(aucun montage nfs/cifs actif)'
     fi
 
-    if [[ ${have_config} -eq 0 ]]; then
+    if [[ ${SHOW_HAVE_CONFIG} -eq 0 ]]; then
         echo
         echo "Configuration illisible (${CONFIG}) : lancer avec sudo pour la comparer aux montages réels."
     fi
+}
 
+print_json_array() { # print_json_array <nom> <virgule finale 0|1> <élément…>
+    local name="${1:-}"
+    local comma="${2:-0}"
+    local count=0
+    local item=''
+    shift 2 || true
+    count=$#
+
+    if [[ ${count} -eq 0 ]]; then
+        if [[ ${comma} -eq 1 ]]; then
+            printf '  "%s": [],\n' "${name}"
+        else
+            printf '  "%s": []\n' "${name}"
+        fi
+        return 0
+    fi
+
+    printf '  "%s": [\n' "${name}"
+    local i=0
+    for item in "$@"; do
+        i=$(( i + 1 ))
+        if [[ ${i} -lt ${count} ]]; then
+            printf '    %s,\n' "${item}"
+        else
+            printf '    %s\n' "${item}"
+        fi
+    done
+    if [[ ${comma} -eq 1 ]]; then
+        printf '  ],\n'
+    else
+        printf '  ]\n'
+    fi
+}
+
+render_json() {
+    local row='' point='' type='' server='' path='' nets='' source='' fstype=''
+    local mopts='' state='' conf='' copts=''
+    local mounted='' healthy=''
+    local -a shares=() foreign=()
+
+    for row in "${SHOW_ROWS[@]}"; do
+        IFS='|' read -r point type server path nets source fstype mopts state conf copts <<< "${row}"
+
+        if [[ "${state}" == 'démonté' ]]; then
+            mounted='false'
+        else
+            mounted='true'
+        fi
+        if [[ "${state}" == 'monté, sain' ]]; then
+            healthy='true'
+        elif [[ "${state}" == 'monté, MUET' ]]; then
+            healthy='false'
+        else
+            healthy='null'
+        fi
+
+        if [[ "${conf}" == '1' ]]; then
+            shares+=("$(printf '{"type": "%s", "server": "%s", "share": "%s", "mountpoint": "%s", "networks": "%s", "source": "%s", "fstype": "%s", "options": "%s", "runtime_options": "%s", "state": "%s", "mounted": %s, "healthy": %s}' \
+                "$(json_escape "${type}")" "$(json_escape "${server}")" "$(json_escape "${path}")" \
+                "$(json_escape "${point}")" "$(json_escape "${nets}")" "$(json_escape "${source}")" \
+                "$(json_escape "${fstype}")" "$(json_escape "${copts}")" "$(json_escape "${mopts}")" \
+                "$(json_escape "${state}")" "${mounted}" "${healthy}")")
+        else
+            foreign+=("$(printf '{"mountpoint": "%s", "source": "%s", "fstype": "%s", "runtime_options": "%s"}' \
+                "$(json_escape "${point}")" "$(json_escape "${source}")" \
+                "$(json_escape "${fstype}")" "$(json_escape "${mopts}")")")
+        fi
+    done
+
+    if [[ ${SHOW_HAVE_CONFIG} -eq 1 ]]; then
+        printf '{\n'
+        printf '  "version": "%s",\n' "$(json_escape "${VER}")"
+        printf '  "config": "%s",\n' "$(json_escape "${CONFIG}")"
+        printf '  "config_readable": true,\n'
+    else
+        printf '{\n'
+        printf '  "version": "%s",\n' "$(json_escape "${VER}")"
+        printf '  "config": "%s",\n' "$(json_escape "${CONFIG}")"
+        printf '  "config_readable": false,\n'
+    fi
+    print_json_array shares 1 "${shares[@]}"
+    print_json_array foreign 0 "${foreign[@]}"
+    printf '}\n'
+}
+
+show_mounts() { # show_mounts [table|json]
+    local mode="${1:-table}"
+
+    collect_mounts
+    case "${mode}" in
+        json) render_json ;;
+        *)    render_table ;;
+    esac
     return 0
 }
+
 
 load_config() {
     SHARES=()
@@ -558,7 +749,14 @@ main() {
     local action="${1:-}"
 
     case "${action}" in
-        show) show_mounts; return ;;
+        show)
+            case "${2:-}" in
+                '')     show_mounts table ;;
+                --json) show_mounts json ;;
+                *)      return 3 ;;
+            esac
+            return
+            ;;
         mount|unmount|apply) ;;
         *) return 3 ;;
     esac

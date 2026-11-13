@@ -52,20 +52,54 @@ new_case() { # new_case <name>
     stub ls         'printf "ls\n" >> "$CALLS"; exit 0'
     stub nmcli      'printf "nmcli %s\n" "$*" >> "$CALLS"; exit 0'
     stub ip         'printf "ip %s\n" "$*" >> "$CALLS"; exit 0'
-    # findmnt : répond depuis ${FINDTAB} ("TARGET SOURCE FSTYPE OPTIONS"), et
-    # échoue quand -M cible un point absent (comme le vrai).
-    stub findmnt    'printf "findmnt %s\n" "$*" >> "$CALLS"
-target=""
-prev=""
+    # findmnt : répond depuis ${FINDTAB} ("TARGET SOURCE FSTYPE OPTIONS"), en
+    # respectant la projection demandée par -o/-no (sinon un appel à
+    # `-no FSTYPE` renverrait quatre colonnes et le test validerait une sortie
+    # que le vrai findmnt ne produit jamais), et échoue quand -M cible un point
+    # absent, comme le vrai.
+    cat > "${CASE_DIR}/bin/findmnt" <<'STUB'
+#!/bin/sh
+printf 'findmnt %s\n' "$*" >> "$CALLS"
+target=''
+cols='TARGET,SOURCE,FSTYPE,OPTIONS'
+prev=''
 for a in "$@"; do
-    [ "$prev" = "-M" ] && target="$a"
+    [ "$prev" = '-M' ] && target="$a"
+    case "$a" in
+        *,*)                          cols="$a" ;;
+        TARGET|SOURCE|FSTYPE|OPTIONS) cols="$a" ;;
+    esac
     prev="$a"
 done
+
+project() {
+    awk -v cols="$cols" '
+        BEGIN {
+            n = split(cols, a, ",")
+            for (i = 1; i <= n; i++) {
+                idx[i] = 1
+                if (a[i] == "SOURCE") idx[i] = 2
+                if (a[i] == "FSTYPE") idx[i] = 3
+                if (a[i] == "OPTIONS") idx[i] = 4
+            }
+        }
+        {
+            out = ""
+            for (i = 1; i <= n; i++) out = out (i > 1 ? " " : "") $idx[i]
+            print out
+        }
+    '
+}
+
 if [ -n "$target" ]; then
-    grep -F -- "$target " "${FINDTAB}" 2>/dev/null || exit 1
-else
-    cat "${FINDTAB}" 2>/dev/null || true
-fi'
+    line="$(grep -F -- "$target " "${FINDTAB}" 2>/dev/null)" || exit 1
+    printf '%s\n' "$line" | project
+    exit 0
+fi
+
+project < "${FINDTAB}"
+STUB
+    chmod +x "${CASE_DIR}/bin/findmnt"
     stub iw         'printf "iw %s\n" "$*" >> "$CALLS"; printf "Connected to aa:bb:cc:dd:ee:ff (on wlan0)\n\tSSID: Maison\n\tfreq: 5180\n"'
 
     CASE_SHARES=("nfs|192.168.1.10|/share|${CASE_DIR}/mnt|nodev,nosuid,noexec|aa:bb:cc:dd:ee:ff|")
@@ -176,6 +210,11 @@ set_mount_table() { # set_mount_table "TARGET SOURCE FSTYPE OPTIONS" ...
 run_show() { # run_show -> stdout du verbe show
     ( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
         SMARTMOUNT_DEPS="${CASE_DEPS-}" bash "${SCRIPT}" show 2>/dev/null )
+}
+
+run_show_json() { # run_show_json -> stdout de `show --json`
+    ( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
+        SMARTMOUNT_DEPS="${CASE_DEPS-}" bash "${SCRIPT}" show --json 2>/dev/null )
 }
 
 contains() { # contains <texte> <motif> -> oui/non
@@ -667,8 +706,10 @@ check "aucun partage : code 122" 122 "${rc}"
 
 # 48-52. Verbe `show` : lecture seule, tableau aligné, montages hors config.
 new_case show_both_mounted
-set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,nodev" \
-                "${CASE_DIR}/mnt2 //192.168.1.30/public cifs rw,vers=3.0"
+# Les options du noyau portent des marqueurs propres (rsize) : elles ne doivent
+# pas apparaître, seules les options retenues par l'utilisateur sont affichées.
+set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,rsize=1048576" \
+                "${CASE_DIR}/mnt2 //192.168.1.30/public cifs rw,rsize=1048576"
 CASE_SHARES=(
     "nfs|192.168.1.10|/share|${CASE_DIR}/mnt|nodev|aa:bb:cc:dd:ee:ff|"
     "cifs|192.168.1.30|public|${CASE_DIR}/mnt2|vers=3.0|aa:bb:cc:dd:ee:ff|"
@@ -679,6 +720,9 @@ check "show : en-tête" oui "$(contains "${out}" 'POINT DE MONTAGE')"
 check "show : partage nfs monté et sain" oui "$(contains "${out}" 'monté, sain')"
 check "show : les deux points listés" oui "$(contains "${out}" "${CASE_DIR}/mnt2")"
 check "show : aucun montage hors config" oui "$(lacks "${out}" 'hors configuration')"
+check "show : options retenues (nfs)" oui "$(contains "${out}" 'nodev')"
+check "show : options retenues (cifs)" oui "$(contains "${out}" 'vers=3.0')"
+check "show : options du noyau masquées" oui "$(lacks "${out}" 'rsize')"
 
 new_case show_one_unmounted
 set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,nodev"
@@ -715,6 +759,108 @@ mkdir -p "${CASE_DIR}/config"
 out="$(run_show)"
 check "show : montages réels affichés sans config" oui "$(contains "${out}" '/media/NAS')"
 check "show : note sur la config illisible" oui "$(contains "${out}" 'Configuration illisible')"
+rmdir "${CASE_DIR}/config"
+
+# 53-54. Serveur muet : `umount` attend ses RPC, `umount -f` les abandonne. Ce
+# repli ne doit être tenté que sur NFS (sur CIFS il n'a pas cet effet).
+new_case unmount_forced_nfs
+set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,hard"
+stub mountpoint 'printf "mountpoint\n" >> "$CALLS"; exit 0'
+stub umount 'printf "umount %s\n" "$*" >> "$CALLS"; case "$*" in *-f*) exit 0 ;; *) exit 1 ;; esac'
+write_config
+rc="$(run_script unmount)"
+check "démontage forcé (nfs) : code 0" 0 "${rc}"
+# Motifs ancrés sur la commande : le journal dit aussi « repli forcé (umount -f …) »
+# et une recherche libre validerait le log au lieu de l'appel.
+check "démontage forcé (nfs) : umount -f appelé" oui "$(called '^umount -f')"
+check "démontage forcé (nfs) : pas de repli paresseux" oui "$(not_called '^umount .*-l')"
+
+new_case unmount_no_force_cifs
+set_mount_table "${CASE_DIR}/mnt //192.168.1.30/public cifs rw"
+stub mountpoint 'printf "mountpoint\n" >> "$CALLS"; exit 0'
+stub umount 'printf "umount %s\n" "$*" >> "$CALLS"; case "$*" in *-l*) exit 0 ;; *) exit 1 ;; esac'
+write_config
+rc="$(run_script unmount)"
+check "cifs : pas de démontage forcé" oui "$(not_called '^umount -f')"
+check "cifs : repli paresseux" oui "$(called '^umount .*-l')"
+check "cifs : code 0" 0 "${rc}"
+
+# 55-57. Réseaux autorisés par partage (8e champ) : un partage peut refuser le
+# Wi-Fi domestique, en accepter plusieurs, ou ne dépendre que de la MAC.
+new_case nets_reject
+stub mountpoint 'printf "mountpoint\n" >> "$CALLS"; exit 0'
+CASE_SHARES=("nfs|192.168.1.10|/share|${CASE_DIR}/mnt|nodev|aa:bb:cc:dd:ee:ff||AutreReseau")
+write_config
+rc="$(run_script apply)"
+check "réseaux : SSID non autorisé, code 0" 0 "${rc}"
+check "réseaux : SSID non autorisé, pas de montage" oui "$(not_called 'mount -t nfs')"
+check "réseaux : SSID non autorisé, démontage" oui "$(called '^umount')"
+
+new_case nets_accept_multi
+neighbors aa:bb:cc:dd:ee:ff ""
+CASE_SHARES=("nfs|192.168.1.10|/share|${CASE_DIR}/mnt|nodev|aa:bb:cc:dd:ee:ff||AutreReseau;Maison")
+write_config
+rc="$(run_script apply)"
+check "réseaux : liste, code 0" 0 "${rc}"
+check "réseaux : liste, montage" oui "$(called 'mount -t nfs')"
+
+new_case nets_star_foreign_ssid
+stub iw 'printf "iw %s\n" "$*" >> "$CALLS"; printf "Connected to aa:bb:cc:dd:ee:ff (on wlan0)\n\tSSID: CafeDuCoin\n"'
+neighbors aa:bb:cc:dd:ee:ff ""
+CASE_SHARES=("nfs|192.168.1.10|/share|${CASE_DIR}/mnt|nodev|aa:bb:cc:dd:ee:ff||*")
+write_config
+rc="$(run_script apply)"
+check "réseaux : * ignore le SSID, code 0" 0 "${rc}"
+check "réseaux : * montage si MAC confirmée" oui "$(called 'mount -t nfs')"
+
+# 58-59. `show --json` : sortie machine pour un script ou une interface.
+new_case show_json
+set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,nodev"
+CASE_CREDS="${CASE_DIR}/credentials-1"
+printf 'username=u\npassword=p\n' > "${CASE_CREDS}"
+CASE_SHARES=(
+    "nfs|192.168.1.10|/share|${CASE_DIR}/mnt|nodev|aa:bb:cc:dd:ee:ff|"
+    "cifs|192.168.1.30|public|${CASE_DIR}/mnt2|vers=3.0|aa:bb:cc:dd:ee:ff|${CASE_CREDS}"
+)
+write_config
+out="$(run_show_json)"
+if command -v python3 >/dev/null 2>&1; then
+    if printf '%s' "${out}" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
+        valid=oui
+    else
+        valid=non
+    fi
+else
+    valid="$(contains "${out}" '"shares": [')"
+fi
+check "show --json : JSON valide" oui "${valid}"
+check "show --json : config lisible" oui "$(contains "${out}" '"config_readable": true')"
+check "show --json : partage monté" oui "$(contains "${out}" '"mounted": true')"
+check "show --json : partage démonté" oui "$(contains "${out}" '"mounted": false')"
+check "show --json : santé renseignée" oui "$(contains "${out}" '"healthy": true')"
+check "show --json : chemin des identifiants absent" oui "$(lacks "${out}" 'credentials-1')"
+check "show --json : état lisible" oui "$(contains "${out}" 'démonté')"
+check "show --json : options retenues" oui "$(contains "${out}" '"options": "nodev')"
+check "show --json : options du noyau à part" oui "$(contains "${out}" '"runtime_options": "rw,nodev')"
+check "show --json : options du noyau jamais en tête" oui "$(lacks "${out}" '"options": "rw,nodev')"
+
+new_case show_json_config_unreadable
+set_mount_table "/media/NAS 192.168.1.10:/share nfs4 rw,nodev"
+rm -f "${CASE_DIR}/config"
+mkdir -p "${CASE_DIR}/config"
+out="$(run_show_json)"
+check "show --json sans config : config_readable false" oui "$(contains "${out}" '"config_readable": false')"
+check "show --json sans config : montage listé" oui "$(contains "${out}" '"mountpoint": "/media/NAS"')"
+if command -v python3 >/dev/null 2>&1; then
+    if printf '%s' "${out}" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
+        valid=oui
+    else
+        valid=non
+    fi
+else
+    valid="$(contains "${out}" '"foreign": [')"
+fi
+check "show --json sans config : JSON valide" oui "${valid}"
 rmdir "${CASE_DIR}/config"
 
 # ---------------------------------------------------------------- summary

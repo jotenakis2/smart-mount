@@ -369,7 +369,11 @@ Renseignez ensuite le 6e champ du partage dans ${CONFIG_FILE}
 (ou relancez : sudo make install)." 22 78 || true
     fi
 
-    printf '%s|%s|%s|%s|%s|%s|%s' "${type}" "${server}" "${path}" "${mount}" "${opts}" "${mac}" "${creds}"
+    # 8e champ : réseaux autorisés pour CE partage. Vide = le SSID global, ce qui
+    # reproduit exactement le comportement d'avant.
+    nets="$(ask_input "Partage ${num}" "Réseaux autorisés, séparés par ; (vide = le SSID global, * = indifférent)" "")"
+
+    printf '%s|%s|%s|%s|%s|%s|%s|%s' "${type}" "${server}" "${path}" "${mount}" "${opts}" "${mac}" "${creds}" "${nets}"
 }
 # **************************************************************************************************************************************
 
@@ -395,7 +399,7 @@ write_config() {
         printf 'LAN_IFACE="%s"\n' "${LAN_IFACE}"
         printf '\n'
         printf '# Partages : un enregistrement par partage, champs séparés par |\n'
-        printf '#   type|serveur|partage|point de montage|options|mac|identifiants\n'
+        printf '#   type|serveur|partage|point de montage|options|mac|identifiants|réseaux\n'
         printf 'SHARES=(\n'
         for share in "${SHARES[@]}"; do
             printf '  "%s"\n' "${share}"
@@ -403,7 +407,12 @@ write_config() {
         printf ')\n'
     } > "${CONFIG_FILE}"
 
-    chmod 600 "${CONFIG_FILE}"
+    # 0640 root:root : identique à 0600 pour tout autre utilisateur, mais un
+    # groupe dédié (SMARTMOUNT_GROUP=smartmount) permet à `show` de lire la
+    # configuration sans sudo, sans donner accès aux identifiants CIFS qui sont
+    # dans des fichiers séparés.
+    chmod 0640 "${CONFIG_FILE}"
+    chgrp "${SMARTMOUNT_GROUP:-root}" "${CONFIG_FILE}" 2>/dev/null || true
 
     if [[ "${backup}" = "yes" ]]; then
         whiptail --title "smart-mount setup" --msgbox "Configuration enregistrée dans ${CONFIG_FILE}
