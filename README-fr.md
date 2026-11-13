@@ -162,7 +162,11 @@ SHARES=(
   Tout ramener à un utilisateur est une option d'**export côté serveur**
   (`all_squash,anonuid=…,anongid=…`) ou son équivalent dans l'interface du NAS — pas une
   option de montage.
-  le questionnaire propose d'ajouter `nodev,nosuid,noexec` quand ta ligne ne les a pas,
+  pour CIFS, le questionnaire propose en plus `actimeo=60` : les attributs sont revalidés
+  chaque seconde par défaut, donc parcourir un gros répertoire repaie chaque fichier —
+  mesuré 1,8 s contre 0,35 s — au prix de métadonnées qui peuvent retarder d'une minute.
+  NFS n'a besoin de rien, ses défauts cachent de 3 à 60 s. Le questionnaire propose aussi
+  d'ajouter `nodev,nosuid,noexec` quand ta ligne ne les a pas,
   et demande avant : un partage réseau qui autorise l'exécution ou les binaires setuid
   est un risque qu'on n'a aucune raison d'accepter par défaut ;
 - **mac** : l'adresse MAC du serveur — sans elle, le partage n'est jamais monté ;

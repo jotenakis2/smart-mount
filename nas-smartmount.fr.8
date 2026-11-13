@@ -1,4 +1,4 @@
-.TH NAS-SMARTMOUNT 8 "2026-11-13" "smart-mount 1.23" "Manuel d'administration système"
+.TH NAS-SMARTMOUNT 8 "2026-11-13" "smart-mount 1.24" "Manuel d'administration système"
 .SH NOM
 nas-smartmount \- monter des partages NFS et CIFS seulement sur le bon réseau,
 depuis le bon serveur
@@ -134,6 +134,12 @@ Tout ramener à un utilisateur est une option d'export côté serveur
 .BR anongid= )
 ou son équivalent dans l'interface du NAS, pas une option de montage.
 .PP
+Pour CIFS, le questionnaire propose en plus
+.BR actimeo=60 :
+le client revalide les attributs chaque seconde par défaut, donc parcourir un gros
+répertoire repaie chaque fichier — mesuré ici 1,8 s contre 0,35 s — au prix de métadonnées
+qui peuvent retarder d'une minute. NFS n'a besoin de rien : ses défauts cachent déjà de 3 à
+60 s.
 CIFS a ses propres options utiles :
 .BR vers= ,
 .BR iocharset= ,

@@ -157,7 +157,11 @@ SHARES=(
   sides); without it, or when the ids do not line up, files show up as numeric ids or as
   `nobody`. Mapping everything to one user is a *server-side* export option
   (`all_squash,anonuid=…,anongid=…`) or its NAS equivalent — not a mount option.
-  The wizard proposes adding `nodev,nosuid,noexec` when your line lacks them, and
+  For CIFS the wizard also offers `actimeo=60`: attributes are revalidated every second by
+  default, so scanning a large directory repays every file — measured 1.8 s against 0.35 s —
+  at the price of metadata up to a minute stale. NFS needs nothing: its defaults already
+  cache for 3 to 60 s. The wizard also proposes adding `nodev,nosuid,noexec` when your line
+  lacks them, and
   asks first: a network share that allows execution or setuid binaries is a risk
   nobody has a reason to accept by default;
 - **mac**: the server's MAC address — without it the share is never mounted;
