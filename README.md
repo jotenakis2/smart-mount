@@ -200,6 +200,9 @@ dedicated polkit action (`org.jotenakis.smartmount.manage`, installed with the r
 `pkexec nfs-smartmount.sh apply` asks for authentication in the desktop session
 instead of requiring a `sudo` terminal. It is not a privilege bypass — the mount
 specification comes from `/etc/smart-mount/config`, which stays `root:root`.
+Polkit reads actions from `/usr/share`, `/usr/local/share` and `/etc`; if the action
+does not show up right after installation (`pkaction --action-id
+org.jotenakis.smartmount.manage`), `sudo systemctl restart polkit` once.
 
 If you want `show` to read the configuration too, give it a group of its own:
 

@@ -19,6 +19,10 @@ Pour lire la configuration sans sudo avec `show`, créer un groupe dédié :
     sudo usermod -aG smartmount "$USER"
     sudo chgrp smartmount /etc/smart-mount/config
 puis relancer la session.
+
+Si l'action polkit n'apparaît pas (pkaction --action-id
+org.jotenakis.smartmount.manage), relancer polkit une fois :
+    sudo systemctl restart polkit
 EOF
 }
 

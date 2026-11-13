@@ -205,6 +205,9 @@ reste) : `pkexec nfs-smartmount.sh apply` demande l'authentification dans la ses
 graphique au lieu d'exiger un terminal `sudo`. Ce n'est pas un contournement de
 privilège — la spécification montée vient de `/etc/smart-mount/config`, qui reste
 `root:root`.
+Polkit lit ses actions dans `/usr/share`, `/usr/local/share` et `/etc` ; si l'action
+n'apparaît pas juste après l'installation (`pkaction --action-id
+org.jotenakis.smartmount.manage`), un `sudo systemctl restart polkit` suffit.
 
 Pour que `show` lise aussi la configuration, donne-lui un groupe :
 
