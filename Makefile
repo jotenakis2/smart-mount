@@ -2,6 +2,8 @@ PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 NM_DISPATCHER_DIR ?= /etc/NetworkManager/dispatcher.d
 SYSTEMD_SYSTEM_DIR ?= /etc/systemd/system
+MAN8_DIR ?= $(PREFIX)/share/man/man8
+POLKIT_ACTIONS_DIR ?= $(PREFIX)/share/polkit-1/actions
 INSTALL ?= install
 CHOWN ?= chown
 RM ?= rm -f
@@ -9,6 +11,9 @@ RM ?= rm -f
 DISPATCHER_SCRIPTS := 98-eth-nfs-mac 99-wifi-nfs-mount
 BIN_SCRIPT := nfs-smartmount.sh
 SYSTEMD_UNITS := nfs-network-check.service nfs-network-check.timer
+MANPAGE := nfs-smartmount.8
+POLICY := org.jotenakis.smartmount.policy
+SETUP_SCRIPT := setup.sh
 
 # Dépendances d'exécution, exprimées en commandes (pas en paquets, qui changent
 # selon la distribution) : nfs-utils/nfs-common, iproute2, iputils, coreutils,
@@ -41,6 +46,8 @@ check:
 	test -f nfs-smartmount.sh
 	test -f nfs-network-check.service
 	test -f nfs-network-check.timer
+	test -f nfs-smartmount.8
+	test -f org.jotenakis.smartmount.policy
 	bash -n 98-eth-nfs-mac
 	bash -n 99-wifi-nfs-mount
 	bash -n nfs-smartmount.sh
@@ -52,13 +59,22 @@ check:
 	else \
 		printf '%s\n' "shellcheck absent : contrôle de style sauté"; \
 	fi
+	@if command -v groff >/dev/null 2>&1; then \
+		groff -man -Tutf8 -z nfs-smartmount.8; \
+	else \
+		printf '%s\n' "groff absent : page de man non validée"; \
+	fi
 	bash tests/run.sh
 
 install: deps check
-	@if [ -t 0 ] && [ -t 1 ] && [ -x ./setup.sh ]; then ./setup.sh; fi
+	@if [ -z "$(DESTDIR)" ] && [ -t 0 ] && [ -t 1 ] && [ -x ./$(SETUP_SCRIPT) ]; then \
+		./$(SETUP_SCRIPT); \
+	fi
 	$(INSTALL) -d -m 0755 "$(DESTDIR)$(NM_DISPATCHER_DIR)"
 	$(INSTALL) -d -m 0755 "$(DESTDIR)$(BINDIR)"
 	$(INSTALL) -d -m 0755 "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)"
+	$(INSTALL) -d -m 0755 "$(DESTDIR)$(MAN8_DIR)"
+	$(INSTALL) -d -m 0755 "$(DESTDIR)$(POLKIT_ACTIONS_DIR)"
 
 	$(INSTALL) -m 0700 $(DISPATCHER_SCRIPTS) "$(DESTDIR)$(NM_DISPATCHER_DIR)/"
 	$(CHOWN) root:root "$(DESTDIR)$(NM_DISPATCHER_DIR)/98-eth-nfs-mac"
@@ -66,6 +82,19 @@ install: deps check
 
 	$(INSTALL) -m 0755 $(BIN_SCRIPT) "$(DESTDIR)$(BINDIR)/$(BIN_SCRIPT)"
 	$(CHOWN) root:root "$(DESTDIR)$(BINDIR)/$(BIN_SCRIPT)"
+
+	$(INSTALL) -m 0755 $(SETUP_SCRIPT) "$(DESTDIR)$(BINDIR)/smart-mount-setup"
+	$(CHOWN) root:root "$(DESTDIR)$(BINDIR)/smart-mount-setup"
+
+	$(INSTALL) -m 0644 $(MANPAGE) "$(DESTDIR)$(MAN8_DIR)/"
+	# L'action polkit est liée à un chemin absolu : on la réécrit pour le PREFIX
+	# réellement utilisé, sinon un paquet en /usr déclare une action pour un
+	# binaire qui n'existe pas à cet endroit.
+	sed 's|/usr/local/bin/nfs-smartmount.sh|$(BINDIR)/nfs-smartmount.sh|' $(POLICY) \
+		> "$(DESTDIR)$(POLKIT_ACTIONS_DIR)/$(POLICY)"
+	chmod 0644 "$(DESTDIR)$(POLKIT_ACTIONS_DIR)/$(POLICY)"
+	$(CHOWN) root:root "$(DESTDIR)$(MAN8_DIR)/$(MANPAGE)"
+	$(CHOWN) root:root "$(DESTDIR)$(POLKIT_ACTIONS_DIR)/$(POLICY)"
 
 	$(INSTALL) -m 0644 $(SYSTEMD_UNITS) "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)/"
 	$(CHOWN) root:root "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)/nfs-network-check.service"
@@ -101,6 +130,9 @@ uninstall:
 	$(RM) "$(DESTDIR)$(BINDIR)/$(BIN_SCRIPT)"
 	$(RM) "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)/nfs-network-check.service"
 	$(RM) "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)/nfs-network-check.timer"
+	$(RM) "$(DESTDIR)$(BINDIR)/smart-mount-setup"
+	$(RM) "$(DESTDIR)$(MAN8_DIR)/$(MANPAGE)"
+	$(RM) "$(DESTDIR)$(POLKIT_ACTIONS_DIR)/$(POLICY)"
 	@if [ -z "$(DESTDIR)" ]; then \
 		systemctl daemon-reload || true; \
 	fi

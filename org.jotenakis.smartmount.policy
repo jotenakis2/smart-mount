@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/software/polkit/policyconfig-1.dtd">
+<!--
+  Permet `pkexec /usr/local/bin/nfs-smartmount.sh {mount|unmount|apply}` à un
+  utilisateur de session locale, au lieu d'un sudo qui exige un terminal.
+
+  Ce n'est pas un contournement de privilège : la spécification montée vient de
+  /etc/smart-mount/config, root:root 0640, que l'utilisateur ne peut pas
+  modifier. `show` est déjà utilisable sans privilège et n'a pas besoin de cette
+  action.
+-->
+<policyconfig>
+  <vendor>smart-mount</vendor>
+
+  <action id="org.jotenakis.smartmount.manage">
+    <description>Gérer les montages des partages NFS et CIFS</description>
+    <description xml:lang="en">Manage NFS and CIFS share mounts</description>
+    <message>Authentification requise pour monter ou démonter les partages réseau configurés</message>
+    <message xml:lang="en">Authentication is required to mount or unmount the configured network shares</message>
+    <icon_name>network-server</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/nfs-smartmount.sh</annotate>
+  </action>
+</policyconfig>

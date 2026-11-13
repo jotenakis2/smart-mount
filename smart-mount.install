@@ -1,0 +1,36 @@
+post_install() {
+    cat <<'EOF'
+smart-mount est installé, mais aucun partage n'est configuré.
+
+  1. lancer le questionnaire (il écrit /etc/smart-mount/config) :
+         sudo smart-mount-setup
+
+  2. vérifier la décision sans rien monter :
+         sudo SMARTMOUNT_DRY_RUN=1 nfs-smartmount.sh apply
+
+  3. voir l'état des montages :
+         sudo nfs-smartmount.sh show
+
+Sans MAC cible, un partage ne monte jamais (code de sortie 4) : la MAC se lit
+avec `ip neigh show <IP_DU_SERVEUR>`, ou dans les baux DHCP de la box.
+
+Pour lire la configuration sans sudo avec `show`, créer un groupe dédié :
+    sudo groupadd -r smartmount
+    sudo usermod -aG smartmount "$USER"
+    sudo chgrp smartmount /etc/smart-mount/config
+puis relancer la session.
+EOF
+}
+
+post_upgrade() {
+    post_install
+}
+
+pre_remove() {
+    systemctl disable --now nfs-network-check.timer 2>/dev/null || true
+    cat <<'EOF'
+Le fichier /etc/smart-mount/config et les fichiers d'identifiants CIFS sont
+laissés en place (marqués comme sauvegarde) : supprimez-les à la main si vous
+voulez repartir de zéro.
+EOF
+}

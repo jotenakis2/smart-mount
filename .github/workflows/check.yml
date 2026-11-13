@@ -1,0 +1,46 @@
+name: check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: make check (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - debian:13
+          - ubuntu:24.04
+          - fedora:42
+          - archlinux:latest
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Le binaire tourne de façon identique sur les quatre familles ; la suite
+      # de tests n'appelle aucune commande réelle, mais elle est écrite en bash
+      # et parse des sorties de findmnt/ip : ce sont ces différences-là qu'on
+      # veut voir, pas celles de mount.
+      - name: Install test dependencies
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              make shellcheck python3
+          elif command -v dnf >/dev/null 2>&1; then
+            dnf install -y make shellcheck python3
+          elif command -v pacman >/dev/null 2>&1; then
+            pacman -Syu --noconfirm --needed make shellcheck python
+          else
+            echo "gestionnaire de paquets inconnu" >&2
+            exit 1
+          fi
+
+      # En conteneur la suite tourne en root : c'est voulu, un test qui ne passe
+      # qu'en root (ou que hors root) est un test fragile.
+      - name: Syntax, style and test suite
+        run: make check
