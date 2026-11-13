@@ -20,11 +20,19 @@ readonly SCRIPT_NAME="smartmount-eth-nfs-NM_hook"
 readonly MAIN_SCRIPT="${SMARTMOUNT_MAIN:-/usr/local/bin/nfs-smartmount.sh}"
 
 log_info() {
-    logger -t "${SCRIPT_NAME}" -p user.info -- "$*"
+    if command -v logger >/dev/null 2>&1; then
+        logger -t "${SCRIPT_NAME}" -p user.info -- "$*"
+    else
+        printf '%s\n' "$*" >&2
+    fi
 }
 
 log_err() {
-    logger -t "${SCRIPT_NAME}" -p user.err -- "$*"
+    if command -v logger >/dev/null 2>&1; then
+        logger -t "${SCRIPT_NAME}" -p user.err -- "$*"
+    else
+        printf '%s\n' "$*" >&2
+    fi
 }
 
 trap_err() {

@@ -35,6 +35,7 @@ new_case() { # new_case <name>
     mkdir -p "${CASE_DIR}/bin" "${CASE_DIR}/mnt"
     CALLS="${CASE_DIR}/calls"
     FLAG="${CASE_DIR}/flag"
+    CASE_DEPS=""
     : > "${CALLS}"
     rm -f "${FLAG}"
     export CALLS FLAG
@@ -103,7 +104,10 @@ run_hook() { # run_hook <fichier du hook> <device> <state> ; echoes the exit cod
 }
 
 run_script() { # run_script <verb> ; echoes the exit code
+    # SMARTMOUNT_DEPS vide par défaut : la suite ne doit pas dépendre des paquets
+    # installés sur la machine qui la lance. Les cas dédiés le renseignent.
     ( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
+        SMARTMOUNT_DEPS="${CASE_DEPS-}" \
         bash "${SCRIPT}" "$1" >/dev/null 2>&1 )
     echo $?
 }
@@ -434,7 +438,7 @@ new_case dry_run_mount
 set_neighbor aa:bb:cc:dd:ee:ff
 rc="$( SMARTMOUNT_DRY_RUN=1; export SMARTMOUNT_DRY_RUN
        PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
-         bash "${SCRIPT}" apply >/dev/null 2>&1; echo $? )"
+         SMARTMOUNT_DEPS="" bash "${SCRIPT}" apply >/dev/null 2>&1; echo $? )"
 check "dry-run montage : code 0" 0 "${rc}"
 check "dry-run montage : aucun mount réel" oui "$(not_called 'mount -t nfs')"
 check "dry-run montage : décision journalisée" oui "$(called '\[dry-run\] montage')"
@@ -444,7 +448,7 @@ stub iw 'printf "iw %s\n" "$*" >> "$CALLS"; printf "Not connected.\n"'
 stub mountpoint 'printf "mountpoint\n" >> "$CALLS"; exit 0'
 rc="$( SMARTMOUNT_DRY_RUN=1; export SMARTMOUNT_DRY_RUN
        PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
-         bash "${SCRIPT}" apply >/dev/null 2>&1; echo $? )"
+         SMARTMOUNT_DEPS="" bash "${SCRIPT}" apply >/dev/null 2>&1; echo $? )"
 check "dry-run démontage : code 0" 0 "${rc}"
 check "dry-run démontage : aucun umount réel" oui "$(not_called '^umount')"
 check "dry-run démontage : décision journalisée" oui "$(called '\[dry-run\] démontage')"
@@ -484,6 +488,29 @@ check "wifi MAC fausse : code 0" 0 "${rc}"
 check "wifi MAC fausse : aucun montage" oui "$(not_called 'mount -t nfs')"
 check "wifi MAC fausse : démontage" oui "$(called '^umount')"
 check "wifi MAC fausse : identité refusée" oui "$(called 'identité refusée')"
+
+# 39-41. Dépendances dures : refus nommé, mais le démontage reste toujours possible.
+new_case deps_missing_apply
+CASE_DEPS="commande-inexistante"
+set_neighbor aa:bb:cc:dd:ee:ff
+rc="$(run_script apply)"
+check "dépendance absente (apply) : code 5" 5 "${rc}"
+check "dépendance absente (apply) : aucun montage" oui "$(not_called 'mount -t nfs')"
+check "dépendance absente : commande nommée" oui "$(called 'commande-inexistante')"
+
+new_case deps_missing_mount
+CASE_DEPS="commande-inexistante"
+set_neighbor aa:bb:cc:dd:ee:ff
+rc="$(run_script mount)"
+check "dépendance absente (mount) : code 5" 5 "${rc}"
+check "dépendance absente (mount) : aucun montage" oui "$(not_called 'mount -t nfs')"
+
+new_case deps_missing_unmount
+CASE_DEPS="commande-inexistante"
+stub mountpoint 'printf "mountpoint\n" >> "$CALLS"; exit 0'
+rc="$(run_script unmount)"
+check "dépendance absente : démontage toujours possible" 0 "${rc}"
+check "dépendance absente : umount appelé" oui "$(called '^umount')"
 
 # ---------------------------------------------------------------- summary
 

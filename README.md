@@ -49,14 +49,21 @@ nfs-smartmount.sh {mount|unmount|apply}
   none: `sudo SMARTMOUNT_DRY_RUN=1 /usr/local/bin/nfs-smartmount.sh apply`.
 
 Exit codes: `1` mount failed, `2` unmount failed, `3` invalid usage, `4` no target MAC
-configured, `122` missing config file, `127` server unreachable before mounting.
+configured, `5` missing runtime dependency (the message names it), `122` missing config
+file, `127` server unreachable before mounting.
 
 ## Requirements
 
 `bash`, `nfs-utils`, `whiptail`, NetworkManager, `systemd`, `coreutils` (`timeout`),
-`iproute2` (`ip neigh`, used for the identity check).
+`iproute2` (`ip neigh`, used for the identity check), `util-linux` (`logger`).
 `iw` is recommended — it reads the SSID of the active link reliably; without it the
 script falls back to `nmcli`.
+
+They are **checked**, not just documented: `make install` runs `make deps` first, and
+the script refuses to mount when a hard dependency is missing (`mount.nfs`, `ip`,
+`ping`, `timeout`) — exit code 5, one line naming the command, so the systemd unit
+turns red instead of degrading silently. `unmount` is never blocked, and `logger` is
+optional (logs fall back to stderr).
 
 ## Install
 
@@ -64,10 +71,11 @@ script falls back to `nmcli`.
 git clone https://github.com/jotenakis2/smart-mount && cd smart-mount && sudo make install
 ```
 
-`make install` runs `make check` first (syntax, `shellcheck`, test suite), then the
-configuration wizard (values land in `/etc/smart-mount/config`, mode 0600), copies the
-two hooks to `/etc/NetworkManager/dispatcher.d`, the script to `/usr/local/bin` and the
-units to `/etc/systemd/system`, then enables the timer.
+`make install` runs `make deps` (runtime dependencies) and `make check` first (syntax,
+`shellcheck`, test suite), then the configuration wizard (values land in
+`/etc/smart-mount/config`, mode 0600), copies the two hooks to
+`/etc/NetworkManager/dispatcher.d`, the script to `/usr/local/bin` and the units to
+`/etc/systemd/system`, then enables the timer.
 
 The wizard uses `/etc/fstab` and the active connection as defaults, detects the
 server's MAC address, and rewrites a conflicting `fstab` entry so the share is not
@@ -105,14 +113,15 @@ LAN_IFACE="eth0"
 make check
 ```
 
-Runs `bash -n`, `shellcheck`, and 38 scenarios / 103 assertions with simulated
+Runs `bash -n`, `shellcheck`, and 42 scenarios / 110 assertions with simulated
 commands (`tests/run.sh`): nominal mount, NAS rebooted, busy mount point, unreadable
 SSID, unreachable server, flaky health check, expired `mountpoint`, `nmcli` fallback,
-SSID containing `:`, missing MAC (refusal, code 4), matching SSID without an ARP entry
-or with a different MAC (refusal + identity log), Ethernet confirmed without Wi-Fi,
-foreign Wi-Fi + confirmed Ethernet (and the reverse), MAC compared case-insensitively,
-empty `LAN_IFACE`, dry-run, and both hooks (which must trigger `apply` and never
-unmount on their own). Nothing touches the real system.
+SSID containing `:`, missing MAC (refusal, code 4), missing dependency (refusal, code
+5, and unmount still working), matching SSID without an ARP entry or with a different
+MAC (refusal + identity log), Ethernet confirmed without Wi-Fi, foreign Wi-Fi +
+confirmed Ethernet (and the reverse), MAC compared case-insensitively, empty
+`LAN_IFACE`, dry-run, and both hooks (which must trigger `apply` and never unmount on
+their own). Nothing touches the real system.
 
 The identity check (ARP table + expected MAC) has been validated in dry-run against a
 real ARP entry, over Wi-Fi and Ethernet. What is still not validated is the physical

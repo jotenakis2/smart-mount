@@ -50,15 +50,21 @@ nfs-smartmount.sh {mount|unmount|apply}
   `sudo SMARTMOUNT_DRY_RUN=1 /usr/local/bin/nfs-smartmount.sh apply`.
 
 Codes de sortie : `1` échec de montage, `2` échec de démontage, `3` usage invalide,
-`4` aucune MAC cible configurée, `122` fichier de configuration absent, `127`
-serveur injoignable avant le montage.
+`4` aucune MAC cible configurée, `5` dépendance manquante (le message la nomme),
+`122` fichier de configuration absent, `127` serveur injoignable avant le montage.
 
 ## Dépendances
 
 `bash`, `nfs-utils`, `whiptail`, NetworkManager, `systemd`, `coreutils` (`timeout`),
-`iproute2` (`ip neigh`, utilisé pour le contrôle d'identité).
+`iproute2` (`ip neigh`, utilisé pour le contrôle d'identité), `util-linux` (`logger`).
 `iw` est recommandé — il lit le SSID du lien actif de façon fiable ; sans lui le
 script retombe sur `nmcli`.
+
+Elles sont **vérifiées**, pas seulement documentées : `make install` lance `make deps`
+d'abord, et le script refuse de monter si une dépendance dure manque (`mount.nfs`,
+`ip`, `ping`, `timeout`) — code de sortie 5, une ligne qui nomme la commande, pour que
+l'unité systemd passe en échec au lieu de se dégrader en silence. `unmount` n'est
+jamais bloqué, et `logger` est facultatif (repli sur stderr).
 
 ## Installation
 
@@ -66,10 +72,10 @@ script retombe sur `nmcli`.
 git clone https://github.com/jotenakis2/smart-mount && cd smart-mount && sudo make install
 ```
 
-`make install` exécute d'abord `make check` (syntaxe, `shellcheck`, suite de tests),
-puis le questionnaire de configuration (les valeurs atterrissent dans
-`/etc/smart-mount/config`, mode 0600), copie les deux hooks dans
-`/etc/NetworkManager/dispatcher.d`, le script dans `/usr/local/bin` et les unités
+`make install` exécute d'abord `make deps` (dépendances d'exécution) et `make check`
+(syntaxe, `shellcheck`, suite de tests), puis le questionnaire de configuration (les
+valeurs atterrissent dans `/etc/smart-mount/config`, mode 0600), copie les deux hooks
+dans `/etc/NetworkManager/dispatcher.d`, le script dans `/usr/local/bin` et les unités
 dans `/etc/systemd/system`, puis active le timer.
 
 Le questionnaire utilise `/etc/fstab` et la connexion active comme valeurs par
@@ -109,15 +115,15 @@ LAN_IFACE="eth0"
 make check
 ```
 
-Lance `bash -n`, `shellcheck` et 38 scénarios / 103 assertions avec des commandes
+Lance `bash -n`, `shellcheck` et 42 scénarios / 110 assertions avec des commandes
 simulées (`tests/run.sh`) : montage nominal, NAS redémarré, point de montage occupé,
 SSID illisible, serveur injoignable, test de santé instable, `mountpoint` expiré,
-repli `nmcli`, SSID contenant `:`, MAC absente (refus, code 4), SSID correct sans
-entrée ARP ou avec une MAC différente (refus + log d'identité), Ethernet confirmé
-sans Wi-Fi, Wi-Fi étranger + Ethernet confirmé (et l'inverse), MAC comparée sans
-tenir compte de la casse, `LAN_IFACE` vide, mode dry-run, et les deux hooks (qui
-doivent déclencher `apply` et jamais démonter de leur côté). Aucun accès au système
-réel.
+repli `nmcli`, SSID contenant `:`, MAC absente (refus, code 4), dépendance absente
+(refus, code 5, et démontage toujours possible), SSID correct sans entrée ARP ou avec
+une MAC différente (refus + log d'identité), Ethernet confirmé sans Wi-Fi, Wi-Fi
+étranger + Ethernet confirmé (et l'inverse), MAC comparée sans tenir compte de la
+casse, `LAN_IFACE` vide, mode dry-run, et les deux hooks (qui doivent déclencher
+`apply` et jamais démonter de leur côté). Aucun accès au système réel.
 
 Le contrôle d'identité (table ARP + MAC attendue) a été validé en dry-run contre une
 entrée ARP réelle, en Wi-Fi comme en Ethernet. Ce qui reste non validé : le

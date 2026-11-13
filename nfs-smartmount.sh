@@ -1,33 +1,62 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.2
+VER=1.3
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
 readonly SCRIPT_NAME="${0##*/}"
 trap 'trap_err "$?"' ERR
 
+# Dépendances dures : sans elles, monter est impossible (mount.nfs) ou perd sa
+# sûreté (ip pour l'identité, timeout pour borner les appels, ping pour la
+# joignabilité). Vide = aucune vérification ; c'est ce que fait tests/run.sh pour
+# ne pas dépendre des paquets installés sur la machine de test.
+SMARTMOUNT_DEPS="${SMARTMOUNT_DEPS-mount.nfs ip ping timeout}"
+
+missing_runtime_deps() {
+    local -a deps=()
+    local dep=''
+    local missing=''
+
+    read -r -a deps <<< "${SMARTMOUNT_DEPS}"
+    for dep in "${deps[@]}"; do
+        command -v "${dep}" >/dev/null 2>&1 || missing="${missing} ${dep}"
+    done
+
+    printf '%s' "${missing# }"
+}
+
+require_runtime() {
+    [[ -n "${SMARTMOUNT_DEPS}" ]] || return 0
+    [[ -n "$(missing_runtime_deps)" ]] || return 0
+    return 5   # le message nommant les commandes est émis par trap_err
+}
+
 #-helpers --------------------------------------------------------------------------------------------
-log_info() {
-    # shellcheck disable=SC2015
-    [[ -t 1 ]] && echo "$*" || logger -t "${SCRIPT_NAME}" -p user.info -- "$*"
+# Canal de log : stdout dans un terminal, sinon syslog. `logger` est une
+# dépendance molle : sans lui on écrit sur stderr plutôt que de perdre le message
+# (et plutôt que de faire échouer un hook qui tourne sous set -e).
+_log() {
+    local priority="${1}"
+    shift
+
+    if [[ -t 1 ]]; then
+        echo "$*"
+    elif command -v logger >/dev/null 2>&1; then
+        logger -t "${SCRIPT_NAME}" -p "user.${priority}" -- "$*"
+    else
+        printf '%s\n' "$*" >&2
+    fi
 }
 
-log_notice() {
-    # shellcheck disable=SC2015
-    [[ -t 1 ]] && echo "$*" || logger -t "${SCRIPT_NAME}" -p user.notice -- "$*"
-}
+log_info() { _log info "$@"; }
 
-log_warning() {
-    # shellcheck disable=SC2015
-    [[ -t 1 ]] && echo "$*" || logger -t "${SCRIPT_NAME}" -p user.warning -- "$*"
-}
+log_notice() { _log notice "$@"; }
 
-log_err() {
-    # shellcheck disable=SC2015
-    [[ -t 1 ]] && echo "$*" || logger -t "${SCRIPT_NAME}" -p user.err -- "$*"
-}
+log_warning() { _log warning "$@"; }
+
+log_err() { _log err "$@"; }
 
 trap_err() {
     local exit_code="${1}"
@@ -37,6 +66,7 @@ trap_err() {
         2)   str="Error unmounting ${MOUNT_POINT}";;
         3)   str="${SCRIPT_NAME} syntax error - valid usage is : ${SCRIPT_NAME} {mount|unmount|apply}" ;;
         4)   str="MAC cible absente de ${CONFIG}: aucun montage possible, renseigner NFS_SERVER_MAC (voir README)";;
+        5)   str="Dépendance(s) manquante(s): $(missing_runtime_deps) — voir README, section Requirements";;
         122) str="Missing config file (${CONFIG})";;
         127) str="Error ping test (${NFS_SERVER_IP}) before mounting ${NFS_SERVER_IP}:${NFS_SHAREDPATH} in ${MOUNT_POINT}";;
         *)   str="Unknown error";;
@@ -284,6 +314,8 @@ neighbor_is_target() {
 apply_policy() {
     local ssid='' state=0
 
+    require_runtime || return 5
+
     # Sans MAC cible, l'identité du serveur ne peut pas être vérifiée : on refuse
     # de monter plutôt que de monter sur un inconnu. Code dédié (4).
     if [[ -z "${NFS_SERVER_MAC:-}" ]]; then
@@ -338,6 +370,7 @@ main() {
         mount)
             # Verbe historique : monte si l'un des deux liens est à la fois le
             # bon réseau et le bon serveur, mais ne démonte jamais.
+            require_runtime || return 5
             if [[ -z "${NFS_SERVER_MAC:-}" ]]; then
                 return 4   # message dédié par trap_err
             fi
