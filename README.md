@@ -28,7 +28,7 @@ another network, …).
 ## Behaviour
 
 ```
-nfs-smartmount.sh {mount|unmount|apply}
+nfs-smartmount.sh {show|mount|unmount|apply}
 ```
 
 For each configured share, independently:
@@ -54,6 +54,19 @@ shares are unaffected.
 - **dry-run**: `SMARTMOUNT_DRY_RUN=1` evaluates and logs the decision for every share
   without mounting or unmounting. This is how a network path can be checked on a machine
   that does not have it: `sudo SMARTMOUNT_DRY_RUN=1 /usr/local/bin/nfs-smartmount.sh apply`.
+- **`show`**: read-only table of the configured shares and of what is really mounted,
+  plus any NFS/CIFS mount that does not come from the configuration:
+
+  ```
+  $ sudo nfs-smartmount.sh show
+  TYPE  POINT DE MONTAGE  SOURCE                             ÉTAT
+  nfs   /media/NAS        192.168.50.85:/media/diskusb/data  monté, sain
+  cifs  /media/NAS-smb    //192.168.50.85/usbdisk_data       monté, sain
+  ```
+
+  State is `monté, sain`, `monté, MUET` (mounted but not answering) or `démonté`.
+  It also works without root: the configuration is then unreadable, so only the real
+  mounts are listed, with a note.
 
 Exit codes: `1` mount failed, `2` unmount failed, `3` invalid usage or invalid share
 record, `4` a share has no target MAC, `5` missing runtime dependency (the message names
@@ -174,7 +187,7 @@ place; see Uninstall.
 make check
 ```
 
-Runs `bash -n`, `shellcheck`, and 50 scenarios / 129 assertions with simulated commands
+Runs `bash -n`, `shellcheck`, and 55 scenarios / 139 assertions with simulated commands
 (`tests/run.sh`): nominal mount, server rebooted, busy mount point, unreadable SSID,
 unreachable server, flaky health check, expired `mountpoint`, `nmcli` fallback, SSID
 containing `:`, missing MAC (refusal, code 4), missing dependency (refusal, code 5, and
@@ -184,7 +197,8 @@ Ethernet (and the reverse), MAC compared case-insensitively, empty `LAN_IFACE`,
 dry-run, both hooks (which must trigger `apply` and never unmount on their own), several
 shares at once (one present, one absent; both present with different types), a CIFS
 mount, CIFS credentials (passed once, no duplicate), an invalid share type, an empty
-share list, and a legacy flat config file. Nothing touches the real system.
+share list, the `show` output (healthy, mute, unmounted, foreign mount, unreadable
+configuration), and a legacy flat config file. Nothing touches the real system.
 
 The identity check (ARP table + expected MAC) has been validated in dry-run against a
 real ARP entry. What is still not validated: a physical Ethernet link, and a real CIFS

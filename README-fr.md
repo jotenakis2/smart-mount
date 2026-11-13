@@ -28,7 +28,7 @@ actifs (portable docké, Wi-Fi sur un autre réseau…).
 ## Comportement
 
 ```
-nfs-smartmount.sh {mount|unmount|apply}
+nfs-smartmount.sh {show|mount|unmount|apply}
 ```
 
 Pour chaque partage configuré, indépendamment :
@@ -55,6 +55,19 @@ les autres partages ne sont pas affectés.
   partage sans monter ni démonter. C'est ainsi qu'on contrôle un chemin réseau sur une
   machine qui n'en a pas :
   `sudo SMARTMOUNT_DRY_RUN=1 /usr/local/bin/nfs-smartmount.sh apply`.
+- **`show`** : tableau en lecture seule des partages configurés et de ce qui est
+  réellement monté, plus tout montage NFS/CIFS qui ne vient pas de la configuration :
+
+  ```
+  $ sudo nfs-smartmount.sh show
+  TYPE  POINT DE MONTAGE  SOURCE                             ÉTAT
+  nfs   /media/NAS        192.168.50.85:/media/diskusb/data  monté, sain
+  cifs  /media/NAS-smb    //192.168.50.85/usbdisk_data       monté, sain
+  ```
+
+  L'état vaut `monté, sain`, `monté, MUET` (monté mais ne répond plus) ou `démonté`.
+  Il fonctionne aussi sans root : la configuration est alors illisible, seuls les
+  montages réels sont listés, avec une note.
 
 Codes de sortie : `1` échec de montage, `2` échec de démontage, `3` usage invalide ou
 enregistrement de partage invalide, `4` un partage n'a pas de MAC cible, `5` dépendance
@@ -177,7 +190,7 @@ démarrage : avec `noauto`, c'est smart-mount qui monte au boot (hook + timer).
 make check
 ```
 
-Lance `bash -n`, `shellcheck` et 50 scénarios / 129 assertions avec des commandes
+Lance `bash -n`, `shellcheck` et 55 scénarios / 139 assertions avec des commandes
 simulées (`tests/run.sh`) : montage nominal, serveur redémarré, point de montage occupé,
 SSID illisible, serveur injoignable, test de santé instable, `mountpoint` expiré, repli
 `nmcli`, SSID contenant `:`, MAC absente (refus, code 4), dépendance absente (refus,
@@ -187,8 +200,9 @@ Ethernet confirmé (et l'inverse), MAC comparée sans tenir compte de la casse, 
 vide, mode dry-run, les deux hooks (qui doivent déclencher `apply` et jamais démonter de
 leur côté), plusieurs partages à la fois (un présent, un absent ; les deux présents avec
 des types différents), un montage CIFS, les identifiants CIFS (transmis une seule fois,
-sans doublon), un type de partage invalide, une liste de partages vide, et un ancien
-fichier de configuration à plat. Aucun accès au système réel.
+sans doublon), un type de partage invalide, une liste de partages vide, un ancien
+fichier de configuration à plat, et la sortie de `show` (sain, muet, démonté, montage
+hors configuration, configuration illisible). Aucun accès au système réel.
 
 Le contrôle d'identité (table ARP + MAC attendue) a été validé en dry-run contre une
 entrée ARP réelle. Ce qui reste non validé : un lien Ethernet physique, et un vrai
