@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.22
+VER=1.23
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -121,6 +121,7 @@ msg() {
             wifi_unknown)         text='Wi-Fi %s : état illisible' ;;
             ws_owner)             text='Propriétaire local des fichiers montés (uid:gid) — le compte SMB ci-dessous est une autre identité, celle qui s authentifie' ;;
             ws_modes)             text='Permissions des fichiers et des dossiers (file_mode:dir_mode, octal)' ;;
+            ws_actimeo)           text='Mettre les attributs en cache 60 s au lieu d une seconde ?\n\nParcourir un gros répertoire est mesuré cinq fois plus rapide (1,8 s contre 0,35 s)\nau lieu de revalider chaque fichier. En échange, taille et date de modification\npeuvent avoir jusqu à 60 s de retard si une autre machine écrit dans le partage.' ;;
             ws_conflict)          text='Deux partages utilisent le même point de montage : %s\n\nCelui qui ne reconnaît pas le réseau démonterait le partage de l autre.\nDonne un point de montage distinct à chacun.' ;;
             ws_harden_opts)       text='Ajouter les protections nodev,nosuid,noexec ?\n\nSaisi  : %s\nProposé : %s\n\nCe sont des drapeaux du noyau, valables en NFS comme en CIFS : sans eux, un\npartage réseau peut servir à exécuter un binaire ou à monter un fichier setuid.' ;;
             ws_saved)             text='Configuration enregistrée dans %s' ;;
@@ -215,6 +216,7 @@ msg() {
             wifi_unknown)         text='Wi-Fi %s: unreadable' ;;
             ws_owner)             text='Local owner of the mounted files (uid:gid) — the SMB account below is a different identity, the one that authenticates' ;;
             ws_modes)             text='File and directory permissions (file_mode:dir_mode, octal)' ;;
+            ws_actimeo)           text='Cache attributes for 60 s instead of one second?\n\nScanning a large directory was measured five times faster (1.8 s against 0.35 s)\ninstead of revalidating every file. In exchange, size and modification time can be\nup to 60 s stale if another machine writes to the share.' ;;
             ws_conflict)          text='Two shares use the same mount point: %s\n\nThe one that does not recognise the network would unmount the other share.\nGive each of them its own mount point.' ;;
             ws_harden_opts)       text='Add the nodev,nosuid,noexec protections?\n\nEntered  : %s\nProposed : %s\n\nThese are kernel flags, valid for NFS as well as CIFS: without them a network\nshare can be used to run a binary or to mount a setuid file.' ;;
             ws_saved)             text='Configuration written to %s' ;;
@@ -1453,6 +1455,17 @@ ensure_mode_opts() { # ensure_mode_opts <options> <file_mode:dir_mode>
     printf '%s' "${opts}"
 }
 
+# Le client CIFS revalide les attributs toutes les secondes (cache=strict, actimeo=1) :
+# parcourir un gros répertoire repaie alors chaque fichier. Mesuré ici : 1,8 s contre
+# 0,35 s avec 60 s de cache. NFS n'en a pas besoin, son défaut va déjà de 3 à 60 s.
+ensure_actimeo() { # ensure_actimeo <options>
+    local opts="${1:-}"
+    case ",${opts}," in
+        *",actimeo="*) printf '%s' "${opts}" ;;
+        *)             printf '%s' "${opts:+${opts},}actimeo=60" ;;
+    esac
+}
+
 # uid:gid de l'humain qui a lancé sudo ou pkexec, sinon celui du shell.
 current_owner() {
     local uid="${SUDO_UID:-${PKEXEC_UID:-}}" gid=''
@@ -1664,6 +1677,14 @@ ask_share() { # ask_share <numéro> -> "type|serveur|partage|point|options|mac|c
         opts="$(ensure_owner_opts "${opts}" "${owner}")"
         modes="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_modes)" "0644:0755")"
         opts="$(ensure_mode_opts "${opts}" "${modes}")"
+
+        # Proposé, pas imposé : mettre 60 s de cache sur les attributs accélère le
+        # parcours des gros répertoires, au prix de métadonnées qui peuvent retarder.
+        if [[ ",${opts}," != *",actimeo="* ]]; then
+            if ask_yesno "$(msg ws_share_title "${num}")" "$(msg ws_actimeo)"; then
+                opts="$(ensure_actimeo "${opts}")"
+            fi
+        fi
         creds="$(ask_cifs_creds "${num}" "${server}")"
     fi
 

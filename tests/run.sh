@@ -1130,6 +1130,7 @@ check "questionnaire cifs : enregistrement cifs" oui "$(contains "${cfg}" 'cifs|
 check "questionnaire cifs : uid/gid dans les options" oui "$(contains "${cfg}" 'uid=1000,gid=1000')"
 check "questionnaire cifs : identifiants dans un fichier à part" oui "$(contains "${cfg}" 'credentials-1')"
 check "questionnaire cifs : permissions écrites" oui "$(contains "${cfg}" 'file_mode=0644,dir_mode=0755')"
+check "questionnaire cifs : actimeo proposé et écrit" oui "$(contains "${cfg}" 'actimeo=60')"
 
 # 87-89. Permissions des fichiers montés : complétées comme le reste, sans doublon.
 new_case modes_added
@@ -1192,6 +1193,15 @@ write_config
 out="$(run_show_json)"
 check "--json : réseau autorisé" oui "$(contains "${out}" '"network_allowed": true')"
 check "--json : réseau refusé" oui "$(contains "${out}" '"network_allowed": false')"
+
+# 96-97. cache des attributs : ajouté quand il manque, jamais dupliqué.
+new_case actimeo_added
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_actimeo "guest,uid=1000"' _ "${SCRIPT}" 2>/dev/null )"
+check "actimeo : ajouté" "guest,uid=1000,actimeo=60" "${out}"
+
+new_case actimeo_present
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_actimeo "guest,actimeo=30"' _ "${SCRIPT}" 2>/dev/null )"
+check "actimeo : valeur existante respectée" "guest,actimeo=30" "${out}"
 
 # ---------------------------------------------------------------- summary
 
