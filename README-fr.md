@@ -28,7 +28,7 @@ actifs (portable docké, Wi-Fi sur un autre réseau…).
 ## Comportement
 
 ```
-nfs-smartmount.sh {show [--json]|mount|unmount|apply}
+nfs-smartmount.sh {show [--json]|mount|unmount|apply|--help}
 ```
 
 Pour chaque partage configuré, indépendamment :
@@ -60,17 +60,22 @@ les autres partages ne sont pas affectés.
 
   ```
   $ sudo nfs-smartmount.sh show
-  TYPE  POINT DE MONTAGE  SOURCE                             ÉTAT
-  nfs   /media/NAS        192.168.50.85:/media/diskusb/data  monté, sain
-  cifs  /media/NAS-smb    //192.168.50.85/usbdisk_data       monté, sain
+  TYPE  MOUNT POINT     SOURCE                             STATE             OPTIONS
+  nfs   /media/NAS      192.168.50.85:/media/diskusb/data  mounted, healthy  nodev,nosuid,noexec,noatime,lazytime
+  cifs  /media/NAS-smb  //192.168.50.85/usbdisk_data       mounted, healthy  guest,iocharset=utf8,uid=1000,gid=1000
   ```
 
-  L'état vaut `monté, sain`, `monté, MUET` (monté mais ne répond plus) ou `démonté`.
+  L'état vaut `mounted, healthy`, `mounted, NOT RESPONDING` ou `not mounted` (la
+  sortie est en anglais, comme le journal).
   La dernière colonne affiche les options **retenues dans la configuration** — ta
   décision — et non la chaîne que le noyau rapporte pour chaque montage (`rsize`,
   `addr`, `sec`, `proto`…), qui change à chaque fois et noie l'information utile.
   Il fonctionne aussi sans root : la configuration est alors illisible, seuls les
   montages réels sont listés, avec une note.
+- **`--help`** : aide courte en français, avec le format de configuration et les codes
+  de sortie. C'est volontaire : journal, erreurs et sortie de `show` sont en anglais
+  (ces lignes finissent dans un rapport de bug), alors que l'aide, la page de man et
+  cette documentation s'adressent à l'humain devant le terminal.
 - **`show --json`** : la même information en JSON, pour un script ou une interface
   graphique. Chaque partage porte `options` (retenues) et `runtime_options` (celles
   du noyau), `state`, `mounted` et `healthy`. Aucune dépendance à `jq` : le document
@@ -223,7 +228,7 @@ sudo chgrp smartmount /etc/smart-mount/config    # mode 0640
 make check
 ```
 
-Lance `bash -n`, `shellcheck` et 62 scénarios / 168 assertions avec des commandes
+Lance `bash -n`, `shellcheck` et 64 scénarios / 173 assertions avec des commandes
 simulées (`tests/run.sh`) : montage nominal, serveur redémarré, point de montage occupé,
 SSID illisible, serveur injoignable, test de santé instable, `mountpoint` expiré, repli
 `nmcli`, SSID contenant `:`, MAC absente (refus, code 4), dépendance absente (refus,

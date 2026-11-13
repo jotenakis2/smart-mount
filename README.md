@@ -28,7 +28,7 @@ another network, …).
 ## Behaviour
 
 ```
-nfs-smartmount.sh {show [--json]|mount|unmount|apply}
+nfs-smartmount.sh {show [--json]|mount|unmount|apply|--help}
 ```
 
 For each configured share, independently:
@@ -59,17 +59,22 @@ shares are unaffected.
 
   ```
   $ sudo nfs-smartmount.sh show
-  TYPE  POINT DE MONTAGE  SOURCE                             ÉTAT
-  nfs   /media/NAS        192.168.50.85:/media/diskusb/data  monté, sain
-  cifs  /media/NAS-smb    //192.168.50.85/usbdisk_data       monté, sain
+  TYPE  MOUNT POINT     SOURCE                             STATE             OPTIONS
+  nfs   /media/NAS      192.168.50.85:/media/diskusb/data  mounted, healthy  nodev,nosuid,noexec,noatime,lazytime
+  cifs  /media/NAS-smb  //192.168.50.85/usbdisk_data       mounted, healthy  guest,iocharset=utf8,uid=1000,gid=1000
   ```
 
-  State is `monté, sain`, `monté, MUET` (mounted but not answering) or `démonté`.
+  State is `mounted, healthy`, `mounted, NOT RESPONDING` or `not mounted`; the last
+  column is the options retained in the configuration, not the kernel's.
   The last column shows the options retained in the configuration — the decision you
   made — and not the kernel's per-mount string (`rsize`, `addr`, `sec`, `proto`…),
   which changes on every mount and buries the useful part.
   It also works without root: the configuration is then unreadable, so only the real
   mounts are listed, with a note.
+- **`--help`**: short French help with the configuration format and the exit codes.
+  That is deliberate: logs, errors and `show` output are in English (they end up in
+  bug reports), while the help, the man page and this documentation are for the human
+  sitting in front of the terminal.
 - **`show --json`**: the same information as JSON, for a script or a graphical front
   end. Each share carries `options` (as retained) and `runtime_options` (as reported
   by the kernel), `state`, `mounted` and `healthy`. No `jq` dependency: the shell
@@ -218,7 +223,7 @@ sudo chgrp smartmount /etc/smart-mount/config    # mode 0640
 make check
 ```
 
-Runs `bash -n`, `shellcheck`, and 62 scenarios / 168 assertions with simulated commands
+Runs `bash -n`, `shellcheck`, and 64 scenarios / 173 assertions with simulated commands
 (`tests/run.sh`): nominal mount, server rebooted, busy mount point, unreadable SSID,
 unreachable server, flaky health check, expired `mountpoint`, `nmcli` fallback, SSID
 containing `:`, missing MAC (refusal, code 4), missing dependency (refusal, code 5, and

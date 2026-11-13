@@ -1,7 +1,7 @@
-.TH NFS-SMARTMOUNT 8 "2026-11-13" "smart-mount 1.7" "System Administration Manual"
-.SH NAME
-nfs-smartmount \- mount NFS and CIFS shares only on the right network, from the
-right server
+.TH NFS-SMARTMOUNT 8 "2026-11-13" "smart-mount 1.8" "Manuel d'administration système"
+.SH NOM
+nfs-smartmount \- monter des partages NFS et CIFS seulement sur le bon réseau,
+depuis le bon serveur
 .SH SYNOPSIS
 .B nfs-smartmount.sh
 .RB show " ["
@@ -9,49 +9,54 @@ right server
 .RB "]"
 .br
 .B nfs-smartmount.sh
-.RB { mount | unmount | apply }
+.RB { mount | unmount | apply | \-\-help }
 .SH DESCRIPTION
 .B nfs-smartmount.sh
-mounts each configured share only when the machine is on a network where the
-server is reachable
-.I and
-identified, and unmounts it otherwise.
-It works for NFS and CIFS (SMB) shares, any number of them, each with its own
-mount point.
-Nothing is read from
+monte chaque partage configuré seulement quand la machine est sur un réseau où le
+serveur est joignable
+.I et
+identifié, et le démonte sinon.
+Autant de partages NFS et CIFS (SMB) que voulu, chacun avec son point de montage.
+Rien n'est lu dans
 .I /etc/fstab
-at run time: the tool mounts each share itself.
+à l'exécution : l'outil monte lui-même chaque partage.
 .PP
-Identity is verified at layer 2, not by host name or address alone: the server's
-MAC address is read from the ARP table of the link in use, and compared with the
-expected MAC of that share.
-A share without a target MAC is never mounted.
+L'identité est vérifiée en couche 2, pas seulement par un nom ou une adresse : la
+MAC du serveur est lue dans la table ARP du lien utilisé, et comparée à la MAC
+attendue pour ce partage.
+Un partage sans MAC cible n'est jamais monté.
 .PP
-All the policy lives in one place.
+Toute la politique est à un seul endroit.
 .B apply
-decides for every share and is the only verb that mounts or unmounts anything on
-its own initiative.
-The two NetworkManager dispatcher hooks and the systemd timer only call it, so
-they cannot undo each other's work when both links are up (docked laptop, Wi-Fi
-on a different network).
-.SH COMMANDS
+décide pour tous les partages, et c'est le seul verbe qui monte ou démonte de sa
+propre initiative.
+Les deux hooks NetworkManager et le timer systemd ne font que l'appeler : c'est ce
+qui les empêche de défaire mutuellement leur travail quand les deux liens sont
+actifs (portable docké, Wi-Fi sur un autre réseau).
+.PP
+Les messages de journal, les erreurs et la sortie de
+.B show
+sont en anglais ; l'aide
+.RB ( \-\-help )
+et cette page sont en français.
+.SH COMMANDES
 .TP
 .B show
-Print, for every configured share, its mount point, source, state
-.RI ( "monté, sain" ,
-.I "monté, MUET"
-when the mount no longer answers, or
-.IR démonté )
-and the options retained in the configuration.
-Any NFS or CIFS mount that does not come from the configuration is listed as
-.IR "monté (hors configuration)" .
-Read-only: nothing is mounted, unmounted or logged.
-It also works without root: the configuration is then unreadable, only the real
-mounts are listed, and a note says so.
+Affiche, pour chaque partage configuré, son point de montage, sa source, son état
+.RI ( "mounted, healthy" ,
+.I "mounted, NOT RESPONDING"
+quand le montage ne répond plus, ou
+.IR "not mounted" )
+et les options retenues dans la configuration.
+Tout montage NFS ou CIFS qui ne vient pas de la configuration apparaît en
+.IR "mounted (not in configuration)" .
+Lecture seule : rien n'est monté, démonté ni journalisé.
+Fonctionne aussi sans root : la configuration est alors illisible, seuls les
+montages réels sont listés, et une note le dit.
 .TP
 .BI show " \-\-json"
-Same information as JSON, for scripts and graphical front ends.
-Each share entry carries
+La même information en JSON, pour un script ou une interface graphique.
+Chaque partage porte
 .IR type ,
 .IR server ,
 .IR share ,
@@ -60,180 +65,194 @@ Each share entry carries
 .IR source ,
 .IR fstype ,
 .I options
-as retained by the user,
+(les options retenues),
 .I runtime_options
-as reported by the kernel,
+(celles rapportées par le noyau),
 .IR state ,
 .I mounted
-and
+et
 .IR healthy .
+Le chemin des fichiers d'identifiants n'y apparaît jamais.
 .TP
 .B apply
-Evaluate the policy for every share and mount, repair or unmount as required.
-This is what the timer and the hooks call.
+Évalue la politique de chaque partage et monte, répare ou démonte selon le cas.
+C'est ce que le timer et les deux hooks appellent.
 .TP
 .B mount
-Mount the shares that are legitimately reachable; never unmount anything.
+Monte les partages légitimement joignables ; ne démonte jamais rien.
 .TP
 .B unmount
-Unmount every configured mount point.
-.SH CONFIGURATION FILE
+Démonte tous les points de montage configurés.
+.TP
+.B \-\-help
+Affiche l'aide courte, le format de configuration et les codes de sortie.
+.SH FICHIER DE CONFIGURATION
 .I /etc/smart-mount/config
-is a shell file, read as root, mode 0640 root:root.
-One record per share, seven or eight fields separated by
+est un fichier shell lu en root, mode 0640.
+Un enregistrement par partage, sept ou huit champs séparés par
 .BR | :
 .PP
 .RS
-type|server|share|mount point|options|mac|credentials|networks
+type|serveur|partage|point de montage|options|mac|identifiants|réseaux
 .RE
 .PP
 .TP
 .I type
 .B nfs
-or
+ou
 .BR cifs .
 .TP
-.I server
-IP address or host name of the server.
+.I serveur
+Adresse IP ou nom d'hôte du serveur.
 .TP
-.I share
-Exported path for NFS, share name for CIFS.
+.I partage
+Chemin exporté pour NFS, nom du partage pour CIFS.
 .TP
 .I options
-Passed as
+Passées en
 .BI \-o " options"
-to
+à
 .BR mount (8).
-Shown by
+Affichées par
 .BR show .
 .TP
 .I mac
-MAC address of the server.
-Mandatory: a share without one is refused with exit status 4.
+Adresse MAC du serveur.
+Obligatoire : un partage sans MAC est refusé avec le code de sortie 4.
 .TP
-.I credentials
-CIFS only: path of a credentials file, passed as
+.I identifiants
+CIFS uniquement : chemin d'un fichier d'identifiants, passé en
 .IR credentials= .
-Never as
+Jamais en
 .IR \-o " username=...,password=..." ,
-because a command line is readable by every user through
+parce qu'une ligne de commande est lisible par tout utilisateur via
 .BR ps (1).
 .TP
-.I networks
-Optional: networks where this share may mount, separated by
+.I réseaux
+Facultatif : réseaux où ce partage peut monter, séparés par
 .B ;
-or
+ou
 .BR , .
-Empty means the global
-.BR WIFI_NAME .
-A single
+Vide signifie le
+.B WIFI_NAME
+global (comportement d'origine) ; un seul
 .B *
-means any network, the MAC alone deciding.
+signifie n'importe quel réseau, l'identité du serveur décidant seule.
+Un SSID ne doit contenir ni
+.B ;
+ni
+.BR , .
 .PP
-Global variables:
+Variables globales :
 .BR WIFI_NAME ,
 .BR WIFI_IFACE ,
 .B LAN_IFACE .
 .PP
-A configuration file from an earlier version (flat
+Un fichier de configuration d'une version antérieure (variables à plat
 .BR NFS_SERVER_IP ,
 .BR MOUNT_POINT ", ...)"
-is still read as a single NFS share.
-.SH NETWORK IDENTITY
-Wi-Fi is accepted when the SSID is allowed for the share
-.I and
-the server's MAC is confirmed on
+reste lu comme un partage NFS unique.
+.SH IDENTITÉ RÉSEAU
+Le Wi-Fi est accepté quand le SSID est autorisé pour le partage
+.I et
+que la MAC du serveur est confirmée sur
 .BR WIFI_IFACE .
-Ethernet is accepted when the server's MAC is confirmed on
+L'Ethernet est accepté quand la MAC du serveur est confirmée sur
 .BR LAN_IFACE .
-If either link is a match, the share is mounted; if both links are ruled out
-without ambiguity, it is unmounted; if a link cannot be read, nothing is done
-
-.IP
-failed read must never destroy a working mount.
+Si l'un des deux liens correspond, le partage est monté ; si les deux sont écartés
+sans ambiguïté, il est démonté ; si un lien est illisible, rien n'est fait :
+une lecture ratée ne doit jamais détruire un montage sain.
 .PP
-Anything that changes the MAC seen by this host invalidates the check: a server
-behind a router or a VLAN, a VPN, NAT.
-Configure the MAC that is actually visible on the link.
-.SH FILES
+Tout ce qui change la MAC vue par cette machine invalide le contrôle : serveur
+derrière un routeur ou un VLAN, VPN, NAT.
+Il faut configurer la MAC réellement visible sur le lien.
+.SH FICHIERS
 .TP
 .I /etc/smart-mount/config
-Share definitions, read as root.
+Définition des partages, lu en root.
 .TP
 .I /etc/smart-mount/credentials-*
-CIFS credentials, mode 0600.
+Identifiants CIFS, mode 0600.
 .TP
 .I /usr/local/bin/nfs-smartmount.sh
-The program.
+Le programme.
+.TP
+.I /usr/local/bin/smart-mount-setup
+Le questionnaire de configuration.
 .TP
 .I /etc/NetworkManager/dispatcher.d/98-eth-nfs-mac
-Ethernet hook.
+Hook Ethernet.
 .TP
 .I /etc/NetworkManager/dispatcher.d/99-wifi-nfs-mount
-Wi-Fi hook.
+Hook Wi-Fi.
 .TP
 .I /etc/systemd/system/nfs-network-check.{service,timer}
-Periodic policy run, every 15 minutes.
-.SH ENVIRONMENT
+Exécution périodique de la politique, toutes les 15 minutes.
+.TP
+.I /usr/local/share/polkit-1/actions/org.jotenakis.smartmount.policy
+Action polkit qui autorise
+.B pkexec nfs-smartmount.sh
+dans une session locale.
+.SH VARIABLES D'ENVIRONNEMENT
 .TP
 .B SMARTMOUNT_DRY_RUN
-When set to
+À
 .BR 1 ,
-evaluate and log the decision for every share without mounting or unmounting.
+évalue et journalise la décision de chaque partage sans monter ni démonter.
 .TP
 .B SMARTMOUNT_CONFIG
-Path of the configuration file.
-Overrides
+Chemin du fichier de configuration, à la place de
 .IR /etc/smart-mount/config ;
-intended for tests.
+prévu pour les tests.
 .TP
 .B SMARTMOUNT_DEPS
-Space separated list replacing the runtime dependency check.
-Intended for tests.
+Liste des dépendances d'exécution attendues, remplaçant le contrôle habituel.
+Prévu pour les tests.
 .TP
 .B SMARTMOUNT_GROUP
-Group owning the configuration file, used by
-.BR setup.sh .
-Defaults to
-.BR root .
-.SH EXIT STATUS
+Groupe propriétaire du fichier de configuration, utilisé par
+.BR smart-mount-setup .
+Vaut
+.B root
+par défaut.
+.SH CODES DE SORTIE
 .TP
 .B 0
-Success, including a deliberate decision not to mount.
+Succès, y compris une décision de ne pas monter.
 .TP
 .B 1
-A share could not be mounted.
+Un partage n'a pas pu être monté.
 .TP
 .B 2
-A mount point could not be unmounted.
+Un point de montage n'a pas pu être démonté.
 .TP
 .B 3
-Invalid usage, or an invalid share record.
+Usage invalide, ou enregistrement de partage invalide.
 .TP
 .B 4
-A share has no target MAC.
+Un partage n'a pas de MAC cible.
 .TP
 .B 5
-A runtime dependency is missing; the message names it.
+Une dépendance d'exécution manque ; le message la nomme.
 .TP
 .B 122
-Configuration missing, or no share configured.
+Configuration absente, ou aucun partage configuré.
 .TP
 .B 127
-The server was unreachable before mounting.
-.SH EXAMPLES
-Show what is mounted, with the options retained for each share:
+Le serveur était injoignable avant le montage.
+.SH EXEMPLES
+Voir ce qui est monté, avec les options retenues pour chaque partage :
 .PP
 .RS
 .EX
 $ sudo nfs-smartmount.sh show
-TYPE  POINT DE MONTAGE  SOURCE                             ETAT         OPTIONS
-nfs   /media/NAS        192.168.50.85:/media/diskusb/data  monté, sain  nodev,nosuid,noexec
-cifs  /media/NAS-smb    //192.168.50.85/usbdisk_data       monté, sain  guest,uid=1000,gid=1000
+TYPE  MOUNT POINT     SOURCE                             STATE             OPTIONS
+nfs   /media/NAS      192.168.50.85:/media/diskusb/data  mounted, healthy  nodev,nosuid,noexec
+cifs  /media/NAS-smb  //192.168.50.85/usbdisk_data       mounted, healthy  guest,uid=1000
 .EE
 .RE
 .PP
-Check the policy for every share without touching anything:
+Contrôler la politique sans rien toucher :
 .PP
 .RS
 .EX
@@ -241,26 +260,27 @@ $ sudo SMARTMOUNT_DRY_RUN=1 nfs-smartmount.sh apply
 .EE
 .RE
 .PP
-Feed a graphical front end:
+Alimenter une interface graphique :
 .PP
 .RS
 .EX
 $ nfs-smartmount.sh show --json | jq '.shares[] | {mountpoint, state}'
 .EE
 .RE
-.SH LIMITATIONS
-The MAC check assumes the server is on the same layer 2 segment.
-A cold ARP cache needs a ping to fill; a server that filters ICMP and is not
-already in the ARP table cannot be confirmed, so its share will not mount.
-NFS shares mounted with
+.SH LIMITES
+Le contrôle par MAC suppose que le serveur est sur le même segment de couche 2.
+Un cache ARP froid demande un ping pour se remplir ; un serveur qui filtre l'ICMP et
+n'est pas déjà dans la table ARP ne peut pas être confirmé, donc son partage ne
+monte pas.
+Un partage NFS monté en
 .B hard
-can freeze a process for as long as the RPC timeouts last; the hooks unmount on
-network loss and the timer repairs dead mounts, but a hung mount is only forcibly
-released on NFS
-.RB ( "umount \-f" ).
-One network per machine: the SSID and both interface names are global, not per
-share.
-.SH SEE ALSO
+peut figer un processus aussi longtemps que durent les timeouts RPC ; les hooks
+démontent à la perte du réseau, le timer répare les montages morts, et
+.B umount \-f
+(abandon des RPC en attente) n'est tenté que sur NFS.
+Les noms d'interface sont globaux, seule la liste des réseaux acceptés est par
+partage.
+.SH VOIR AUSSI
 .BR mount (8),
 .BR umount (8),
 .BR findmnt (8),
