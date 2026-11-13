@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.13
+VER=1.14
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -1088,6 +1088,42 @@ checkbox=white,black
 actcheckbox=black,yellow
 '
 
+# Relit la configuration en place pour en faire des valeurs par défaut. Sans ça,
+# relancer le questionnaire oblige à ressaisir des partages déjà décrits — c'est
+# exactement ce qu'on veut éviter quand on ne change qu'un champ.
+load_existing_config() {
+    EXISTING_WIFI_NAME=''
+    EXISTING_WIFI_IFACE=''
+    EXISTING_LAN_IFACE=''
+    EXISTING_SHARES=()
+
+    [[ -f "${CONFIG}" ]] || return 0
+
+    local dump='' line=''
+    local -a lines=()
+
+    # `source` dans une substitution : la lecture ne pollue pas les variables du
+    # questionnaire, et une configuration illisible laisse simplement les défauts.
+    dump="$( set +u
+            # shellcheck disable=SC1090
+            source "${CONFIG}" 2>/dev/null || exit 0
+            printf '%s\n' "${WIFI_NAME:-}" "${WIFI_IFACE:-}" "${LAN_IFACE:-}"
+            printf '%s\n' "${SHARES[@]}" )" || return 0
+
+    mapfile -t lines <<< "${dump}"
+    EXISTING_WIFI_NAME="${lines[0]:-}"
+    EXISTING_WIFI_IFACE="${lines[1]:-}"
+    EXISTING_LAN_IFACE="${lines[2]:-}"
+
+    local i=0
+    for line in "${lines[@]:3}"; do
+        i=$(( i + 1 ))
+        [[ -n "${line}" ]] || continue
+        EXISTING_SHARES+=("${line}")
+    done
+    return 0
+}
+
 setup_main() {
     setup_require_root
     setup_require_cmd whiptail
@@ -1099,13 +1135,21 @@ setup_main() {
     DEFAULT_WIFI_IFACE="wlan0"
     DEFAULT_LAN_IFACE="eth0"
 
+    load_existing_config
+
     find_active_wifi_defaults
     find_active_lan_defaults
     find_lan_iface_fallback
 
+    # La configuration en place prime sur la détection : c'est elle que l'utilisateur
+    # vient confirmer ou corriger.
+    [[ -n "${EXISTING_WIFI_NAME}" ]] && DEFAULT_WIFI_NAME="${EXISTING_WIFI_NAME}"
+    [[ -n "${EXISTING_WIFI_IFACE}" ]] && DEFAULT_WIFI_IFACE="${EXISTING_WIFI_IFACE}"
+    [[ -n "${EXISTING_LAN_IFACE}" ]] && DEFAULT_LAN_IFACE="${EXISTING_LAN_IFACE}"
+
     whiptail --title "smart-mount setup" --msgbox "$(msg ws_intro)" 14 78 || true
 
-    COUNT="$(ask_count)"
+    COUNT="$(ask_count "${#EXISTING_SHARES[@]}")"
     SHARES=()
     local i
     for (( i = 1; i <= COUNT; i++ )); do
@@ -1421,23 +1465,33 @@ ask_password() {
     printf '%s' "${result}"
 }
 
-ask_menu() {
+ask_menu() { # ask_menu <titre> <question> <défaut> <tag item>…
     local title="$1"
     local prompt="$2"
-    shift 2
+    local def="$3"
+    shift 3
     local result
 
-    result="$(whiptail --title "${title}" --menu "${prompt}" 15 78 4 "$@" 3>&1 1>&2 2>&3)" || exit 1
+    if [[ -n "${def}" ]]; then
+        result="$(whiptail --title "${title}" --default-item "${def}" \
+            --menu "${prompt}" 15 78 4 "$@" 3>&1 1>&2 2>&3)" || exit 1
+    else
+        result="$(whiptail --title "${title}" --menu "${prompt}" 15 78 4 "$@" 3>&1 1>&2 2>&3)" || exit 1
+    fi
     printf '%s' "${result}"
 }
 # **************************************************************************************************************************************
 
-ask_count() {
-    local n
-    n="$(ask_input "$(msg ws_shares)" "$(msg ws_count)" "1")"
+ask_count() { # ask_count [défaut]
+    local n=''
+    local default_count="${1:-1}"
+
+    [[ "${default_count}" =~ ^[1-9]$ ]] || default_count=1
+
+    n="$(ask_input "$(msg ws_shares)" "$(msg ws_count)" "${default_count}")"
 
     while [[ ! "${n}" =~ ^[1-9]$ ]]; do
-        n="$(ask_input "$(msg ws_shares)" "$(msg ws_count_bad)" "1")"
+        n="$(ask_input "$(msg ws_shares)" "$(msg ws_count_bad)" "${default_count}")"
     done
 
     printf '%s' "${n}"
@@ -1483,22 +1537,31 @@ ask_cifs_creds() { # ask_cifs_creds <numéro> <serveur> ; -> chemin du fichier o
 
 ask_share() { # ask_share <numéro> -> "type|serveur|partage|point|options|mac|creds"
     local num="$1"
+    local prev='' prev_type='' prev_server='' prev_path='' prev_mount=''
+    local prev_opts='' prev_mac='' prev_nets=''
+
+    # Un enregistrement existant du même rang sert de valeurs par défaut.
+    prev="${EXISTING_SHARES[$(( num - 1 ))]:-}"
+    if [[ -n "${prev}" ]]; then
+        IFS='|' read -r prev_type prev_server prev_path prev_mount prev_opts prev_mac _ prev_nets <<< "${prev}"
+    fi
     local type server path mount opts mac creds='' safe_opts='' owner='' modes=''
     local default_server='' defaults='' mount_default='' opts_default=''
 
-    type="$(ask_menu "$(msg ws_share_title "${num}")" "$(msg ws_type "${num}")" \
+    type="$(ask_menu "$(msg ws_share_title "${num}")" "$(msg ws_type "${num}")" "${prev_type}" \
         "nfs" "NFS (Linux, NAS)" \
         "cifs" "CIFS / SMB (Windows, NAS)")"
 
     default_server="$(fstab_first_server "${type}")"
+    [[ -n "${prev_server}" ]] && default_server="${prev_server}"
 
     if [[ "${type}" = "cifs" ]]; then
         server="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_smb_server)" "${default_server}")"
-        path="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_smb_share)" "")"
+        path="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_smb_share)" "${prev_path}")"
         opts_default="vers=3.0,iocharset=utf8,nodev,nosuid,noexec"
     else
         server="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_nfs_server)" "${default_server}")"
-        path="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_nfs_path)" "")"
+        path="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_nfs_path)" "${prev_path}")"
         opts_default="nodev,nosuid,noexec,noatime,lazytime"
     fi
 
@@ -1506,12 +1569,14 @@ ask_share() { # ask_share <numéro> -> "type|serveur|partage|point|options|mac|c
     # options : c'est le seul rôle de fstab dans ce questionnaire.
     defaults="$(fstab_lookup "${type}" "${server}" "${path}")"
     mount_default="${defaults%%|*}"
+    [[ -n "${prev_mount}" ]] && mount_default="${prev_mount}"
     if [[ -n "${defaults}" ]]; then
         opts_default="${defaults#*|}"
     fi
     if [[ -z "${mount_default}" ]]; then
         mount_default="$(default_mount_for "${path}")"
     fi
+    [[ -n "${prev_opts}" ]] && opts_default="${prev_opts}"
 
     mount="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_mount)" "${mount_default}")"
     opts="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_opts)" "${opts_default}")"
@@ -1536,6 +1601,7 @@ ask_share() { # ask_share <numéro> -> "type|serveur|partage|point|options|mac|c
     fi
 
     mac="$(get_server_mac "${server}")"
+    [[ -n "${prev_mac}" ]] && mac="${prev_mac}"
     mac="$(ask_input "$(msg ws_share_title "${num}")" "$(msg ws_mac "${server}")" "${mac}")"
 
     if [[ -z "${mac}" ]]; then
@@ -1548,7 +1614,7 @@ ask_share() { # ask_share <numéro> -> "type|serveur|partage|point|options|mac|c
     # proche, au bureau. Le SSID courant sert de défaut, la liste des SSID visibles de
     # rappel, et `;` sépare — on évite ainsi d'avoir à deviner l'orthographe.
     nets="$(ask_input "$(msg ws_share_title "${num}")" \
-        "$(msg ws_nets "$(available_ssids)")" "${DEFAULT_WIFI_NAME}")"
+        "$(msg ws_nets "$(available_ssids)")" "${prev_nets:-${DEFAULT_WIFI_NAME}}")"
 
     printf '%s|%s|%s|%s|%s|%s|%s|%s' "${type}" "${server}" "${path}" "${mount}" "${opts}" "${mac}" "${creds}" "${nets}"
 }

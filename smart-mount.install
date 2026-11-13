@@ -1,4 +1,9 @@
 post_install() {
+    # Contrairement à `make install`, pacman n'active rien : sans ceci le timer
+    # reste inerte et rien ne monte tant que le hook réseau n'a pas parlé.
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable --now nfs-network-check.timer >/dev/null 2>&1 || true
+
     cat <<'EOF'
 smart-mount est installé, mais aucun partage n'est configuré.
 
