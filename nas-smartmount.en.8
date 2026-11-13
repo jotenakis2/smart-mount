@@ -1,0 +1,343 @@
+.TH NAS-SMARTMOUNT 8 "2026-11-13" "smart-mount 1.15" "System Administration Manual"
+.SH NAME
+nas-smartmount \- mount NFS and CIFS shares only on the right network, from the
+right server
+.SH SYNOPSIS
+.B nas-smartmount.sh
+.RB show " ["
+.B \-\-json
+.RB "]"
+.br
+.B nas-smartmount.sh
+.RB { mount | unmount | apply | setup | \-\-version | \-\-help }
+.SH DESCRIPTION
+.B nas-smartmount.sh
+mounts each configured share only when the machine is on a network where the server is
+reachable
+.I and
+identified, and unmounts it otherwise.
+Any number of NFS and CIFS (SMB) shares, each with its own mount point.
+Nothing is read from
+.I /etc/fstab
+at run time: the tool mounts each share itself.
+.PP
+Identity is verified at layer 2, not by name or address alone: the server's MAC address
+is read from the ARP table of the link in use, and compared with the MAC expected for
+that share.
+A share without a target MAC is never mounted.
+.PP
+All the policy lives in one place.
+.B apply
+decides for every share, and is the only verb that mounts or unmounts on its own
+initiative.
+The two NetworkManager hooks and the systemd timer only call it: that is what keeps them
+from undoing each other's work when both links are up (docked laptop, Wi-Fi on another
+network).
+.SH COMMANDS
+.TP
+.B show
+Print, for every configured share, its mount point, source, state
+.RI ( "mounted, healthy" ,
+.I "mounted, NOT RESPONDING"
+when the mount no longer answers, or
+.IR "not mounted" )
+and the options retained in the configuration.
+Any NFS or CIFS mount that does not come from the configuration is listed as
+.IR "mounted (not in configuration)" .
+Read-only: nothing is mounted, unmounted or logged.
+It also works without root: the configuration is then unreadable, only the real mounts
+are listed, and a note says so.
+.TP
+.BI show " \-\-json"
+The same information as JSON, for a script or a graphical front end.
+Each share carries
+.IR type ,
+.IR server ,
+.IR share ,
+.IR mountpoint ,
+.IR networks ,
+.IR source ,
+.IR fstype ,
+.I options
+(as retained),
+.I runtime_options
+(as reported by the kernel),
+.IR state ,
+.I mounted
+and
+.IR healthy .
+The credentials path never appears.
+These values are never translated.
+.TP
+.B apply
+Evaluate the policy for every share and mount, repair or unmount as required.
+This is what the timer and the hooks call.
+.TP
+.B mount
+Mount the shares that are legitimately reachable; never unmount anything.
+.TP
+.B unmount
+Unmount every configured mount point.
+.TP
+.B setup
+The configuration wizard (whiptail). It starts from the configuration in place, so each
+question is a confirmation; it writes
+.I /etc/smart-mount/config
+(mode 0640, the previous file kept as
+.IR .bak )
+and neutralises
+.I /etc/fstab
+entries that would double-mount a share.
+Needs root.
+.TP
+.B \-\-version
+Print the version number on one line
+.RI ( "smart-mount " version ),
+without reading the configuration: the line to paste into a bug report.
+.TP
+.B \-\-help
+Print the short help, the configuration format and the exit status.
+.SH LANGUAGE
+Messages, errors and the
+.B show
+output follow the locale
+.RB ( LC_ALL ,
+.BR LC_MESSAGES ,
+.BR LANG :
+two letters are enough), English by default, so that a journal pasted into a bug report
+stays readable.
+.B SMARTMOUNT_LANG
+forces the other language.
+This page exists in both languages: the installed layout lets
+.BR man (1)
+pick the one matching your locale.
+.SH CONFIGURATION FILE
+.I /etc/smart-mount/config
+is a shell file, read as root, mode 0640.
+One record per share, seven or eight fields separated by
+.BR | :
+.PP
+.RS
+type|server|share|mount point|options|mac|credentials|networks
+.RE
+.PP
+.TP
+.I type
+.B nfs
+or
+.BR cifs .
+.TP
+.I server
+IP address or host name of the server.
+.TP
+.I share
+Exported path for NFS, share name for CIFS.
+.TP
+.I options
+Passed as
+.BI \-o " options"
+to
+.BR mount (8).
+Shown by
+.BR show .
+On NFS as on CIFS,
+.BR nodev ,
+.B nosuid
+and
+.B noexec
+are enforced by the kernel.
+.B noatime
+and
+.B lazytime
+are ignored by mount.cifs: the mount stays in
+.BR relatime .
+CIFS has its own options:
+.BR vers= ,
+.BR iocharset= ,
+.BR uid= ,
+.BR gid= ,
+.BR file_mode= ,
+.BR dir_mode= .
+.TP
+.I mac
+MAC address of the server.
+Mandatory: a share without one is refused with exit status 4.
+.TP
+.I credentials
+CIFS only: path of a credentials file, passed as
+.IR credentials= .
+Never as
+.IR \-o " username=...,password=..." ,
+because a command line is readable by every user through
+.BR ps (1).
+.TP
+.I networks
+Optional: networks where this share may mount, separated by
+.B ;
+or
+.BR , .
+Empty means the global
+.BR WIFI_NAME ;
+a single
+.B *
+means any network, the server's identity deciding alone.
+An SSID must contain neither
+.B ;
+nor
+.BR , .
+.PP
+Global variables:
+.BR WIFI_NAME ,
+.BR WIFI_IFACE ,
+.B LAN_IFACE .
+.PP
+A configuration file from an earlier version (flat
+.BR NFS_SERVER_IP ,
+.BR MOUNT_POINT ", ...)"
+is still read as a single NFS share.
+.SH NETWORK IDENTITY
+Wi-Fi is accepted when the SSID is allowed for the share
+.I and
+the server's MAC is confirmed on
+.BR WIFI_IFACE .
+Ethernet is accepted when the server's MAC is confirmed on
+.BR LAN_IFACE .
+If either link matches, the share is mounted; if both are ruled out without ambiguity, it
+is unmounted; if a link cannot be read, nothing is done: a failed read must never destroy
+a working mount.
+.PP
+Anything that changes the MAC seen by this host invalidates the check: a server behind a
+router or a VLAN, a VPN, NAT.
+Configure the MAC actually visible on the link.
+.SH FILES
+.TP
+.I /etc/smart-mount/config
+Share definitions, read as root.
+.TP
+.I /etc/smart-mount/credentials-*
+CIFS credentials, mode 0600.
+.TP
+.I /usr/bin/nas-smartmount.sh
+The program.
+.TP
+.I /usr/bin/nfs-smartmount.sh
+Compatibility symlink (the command was renamed when CIFS support arrived).
+.TP
+.I /usr/bin/smart-mount-setup
+Wrapper around
+.BR "nas-smartmount.sh setup" .
+.TP
+.I /etc/NetworkManager/dispatcher.d/98-eth-nfs-mac
+Ethernet hook.
+.TP
+.I /etc/NetworkManager/dispatcher.d/99-wifi-nfs-mount
+Wi-Fi hook.
+.TP
+.I /etc/systemd/system/nfs-network-check.{service,timer}
+Periodic policy run, every 15 minutes.
+.TP
+.I /usr/share/polkit-1/actions/org.jotenakis.smartmount.policy
+Polkit action allowing
+.B pkexec nas-smartmount.sh
+in a local session.
+.SH ENVIRONMENT
+.TP
+.B SMARTMOUNT_DRY_RUN
+When
+.BR 1 ,
+evaluate and log the decision for every share without mounting or unmounting.
+.TP
+.B SMARTMOUNT_CONFIG
+Alternative path for the configuration file; intended for tests.
+.TP
+.B SMARTMOUNT_DEPS
+List of expected runtime dependencies, replacing the usual check.
+Intended for tests.
+.TP
+.B SMARTMOUNT_GROUP
+Group owning the configuration file, used by the wizard.
+Defaults to
+.BR root .
+.TP
+.B SMARTMOUNT_LANG
+Force the message language
+.RB ( fr
+or
+.IR en )
+instead of deriving it from the locale.
+.SH EXIT STATUS
+.TP
+.B 0
+Success, including a deliberate decision not to mount.
+.TP
+.B 1
+A share could not be mounted.
+.TP
+.B 2
+A mount point could not be unmounted.
+.TP
+.B 3
+Invalid usage, or an invalid share record.
+.TP
+.B 4
+A share has no target MAC.
+.TP
+.B 5
+A runtime dependency is missing; the message names it.
+.TP
+.B 122
+Configuration missing, or no share configured.
+.TP
+.B 127
+The server was unreachable before mounting.
+.SH EXAMPLES
+Show what is mounted, with the options retained for each share:
+.PP
+.RS
+.EX
+$ sudo nas-smartmount.sh show
+TYPE  MOUNT POINT     SOURCE                             STATE             OPTIONS
+nfs   /media/NAS      192.168.50.85:/media/diskusb/data  mounted, healthy  nodev,nosuid,noexec
+cifs  /media/NAS-smb  //192.168.50.85/usbdisk_data       mounted, healthy  guest,uid=1000
+.EE
+.RE
+.PP
+Check the policy without touching anything:
+.PP
+.RS
+.EX
+$ sudo SMARTMOUNT_DRY_RUN=1 nas-smartmount.sh apply
+.EE
+.RE
+.PP
+Feed a graphical front end:
+.PP
+.RS
+.EX
+$ nas-smartmount.sh show --json | jq '.shares[] | {mountpoint, state}'
+.EE
+.RE
+.SH LIMITATIONS
+The MAC check assumes the server is on the same layer 2 segment.
+A cold ARP cache needs a ping to fill; a server that filters ICMP and is not already in
+the ARP table cannot be confirmed, so its share does not mount.
+An NFS share mounted
+.B hard
+can freeze a process for as long as the RPC timeouts last; the hooks unmount on network
+loss, the timer repairs dead mounts, and
+.B umount \-f
+(abandon pending RPCs) is only attempted on NFS.
+Interface names are global, but the list of accepted networks is per share: that is what
+lets one share mount at home and elsewhere.
+Two records must never share a mount point — the one that does not recognise the network
+would unmount the other share.
+A share holds one server address: a NAS that gets a different IP per network needs a
+reserved DHCP lease, not a second record.
+.SH SEE ALSO
+.BR mount (8),
+.BR umount (8),
+.BR findmnt (8),
+.BR nfs (5),
+.BR mount.cifs (8),
+.BR NetworkManager (8),
+.BR systemd.timer (5)

@@ -3,6 +3,7 @@ BINDIR ?= $(PREFIX)/bin
 NM_DISPATCHER_DIR ?= /etc/NetworkManager/dispatcher.d
 SYSTEMD_SYSTEM_DIR ?= /etc/systemd/system
 MAN8_DIR ?= $(PREFIX)/share/man/man8
+MAN_LANG_DIR ?= $(PREFIX)/share/man
 POLKIT_ACTIONS_DIR ?= $(PREFIX)/share/polkit-1/actions
 INSTALL ?= install
 CHOWN ?= chown
@@ -13,6 +14,9 @@ BIN_SCRIPT := nas-smartmount.sh
 # Ancien nom, conservé un temps : unités, hooks et habitudes déjà déployés.
 LEGACY_LINK := nfs-smartmount.sh
 SYSTEMD_UNITS := nfs-network-check.service nfs-network-check.timer
+MANPAGE_EN := nas-smartmount.en.8
+MANPAGE_FR := nas-smartmount.fr.8
+# Les deux langues sont installées : man(1) choisit selon la locale.
 MANPAGE := nas-smartmount.8
 POLICY := org.jotenakis.smartmount.policy
 SETUP_SCRIPT := setup.sh
@@ -48,7 +52,8 @@ check:
 	test -f nas-smartmount.sh
 	test -f nfs-network-check.service
 	test -f nfs-network-check.timer
-	test -f nas-smartmount.8
+	test -f $(MANPAGE_EN)
+	test -f $(MANPAGE_FR)
 	test -f org.jotenakis.smartmount.policy
 	bash -n 98-eth-nfs-mac
 	bash -n 99-wifi-nfs-mount
@@ -62,7 +67,7 @@ check:
 		printf '%s\n' "shellcheck absent : contrôle de style sauté"; \
 	fi
 	@if command -v groff >/dev/null 2>&1; then \
-		groff -man -Tutf8 -z nas-smartmount.8; \
+		groff -man -Tutf8 -z $(MANPAGE_EN) $(MANPAGE_FR); \
 	else \
 		printf '%s\n' "groff absent : page de man non validée"; \
 	fi
@@ -76,6 +81,7 @@ install: deps check
 	$(INSTALL) -d -m 0755 "$(DESTDIR)$(BINDIR)"
 	$(INSTALL) -d -m 0755 "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)"
 	$(INSTALL) -d -m 0755 "$(DESTDIR)$(MAN8_DIR)"
+	$(INSTALL) -d -m 0755 "$(DESTDIR)$(MAN_LANG_DIR)/fr/man8"
 	$(INSTALL) -d -m 0755 "$(DESTDIR)$(POLKIT_ACTIONS_DIR)"
 
 	# Les hooks et l'unité appellent le binaire par son chemin absolu : on le
@@ -94,7 +100,8 @@ install: deps check
 	$(INSTALL) -m 0755 $(SETUP_SCRIPT) "$(DESTDIR)$(BINDIR)/smart-mount-setup"
 	$(CHOWN) root:root "$(DESTDIR)$(BINDIR)/smart-mount-setup"
 
-	$(INSTALL) -m 0644 $(MANPAGE) "$(DESTDIR)$(MAN8_DIR)/"
+	$(INSTALL) -m 0644 $(MANPAGE_EN) "$(DESTDIR)$(MAN8_DIR)/$(MANPAGE)"
+	$(INSTALL) -m 0644 $(MANPAGE_FR) "$(DESTDIR)$(MAN_LANG_DIR)/fr/man8/$(MANPAGE)"
 	# L'action polkit est liée à un chemin absolu : on la réécrit pour le PREFIX
 	# réellement utilisé, sinon un paquet en /usr déclare une action pour un
 	# binaire qui n'existe pas à cet endroit.
@@ -102,6 +109,7 @@ install: deps check
 		> "$(DESTDIR)$(POLKIT_ACTIONS_DIR)/$(POLICY)"
 	chmod 0644 "$(DESTDIR)$(POLKIT_ACTIONS_DIR)/$(POLICY)"
 	$(CHOWN) root:root "$(DESTDIR)$(MAN8_DIR)/$(MANPAGE)"
+	$(CHOWN) root:root "$(DESTDIR)$(MAN_LANG_DIR)/fr/man8/$(MANPAGE)"
 	$(CHOWN) root:root "$(DESTDIR)$(POLKIT_ACTIONS_DIR)/$(POLICY)"
 
 	for unit in $(SYSTEMD_UNITS); do \
@@ -145,6 +153,7 @@ uninstall:
 	$(RM) "$(DESTDIR)$(SYSTEMD_SYSTEM_DIR)/nfs-network-check.timer"
 	$(RM) "$(DESTDIR)$(BINDIR)/smart-mount-setup"
 	$(RM) "$(DESTDIR)$(MAN8_DIR)/$(MANPAGE)"
+	$(RM) "$(DESTDIR)$(MAN_LANG_DIR)/fr/man8/$(MANPAGE)"
 	$(RM) "$(DESTDIR)$(POLKIT_ACTIONS_DIR)/$(POLICY)"
 	@if [ -z "$(DESTDIR)" ]; then \
 		systemctl daemon-reload || true; \

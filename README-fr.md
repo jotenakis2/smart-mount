@@ -81,10 +81,8 @@ les autres partages ne sont pas affectés.
   lignes pour l'habitude.
 - **`--version`** : une ligne, `smart-mount 1.10`, sans lire la configuration — la
   ligne à coller dans un rapport de bug.
-- **`--help`** : aide courte en français, avec le format de configuration et les codes
-  de sortie. C'est volontaire : journal, erreurs et sortie de `show` sont en anglais
-  (ces lignes finissent dans un rapport de bug), alors que l'aide, la page de man et
-  cette documentation s'adressent à l'humain devant le terminal.
+- **`--help`** : aide courte, format de configuration et codes de sortie, dans la
+  langue de ta locale (voir Langue ci-dessous).
 - **`show --json`** : la même information en JSON, pour un script ou une interface
   graphique. Chaque partage porte `options` (retenues) et `runtime_options` (celles
   du noyau), `state`, `mounted` et `healthy`. Aucune dépendance à `jq` : le document
@@ -252,8 +250,10 @@ reste lisible. `SMARTMOUNT_LANG=fr` force le français quelle que soit la locale
 en-têtes et les états du tableau sont traduits ; **les valeurs de `show --json` ne le
 sont pas** (un script ne doit pas dépendre de qui l'appelle).
 
-La page de man existe dans les deux langues : `man 8 nas-smartmount` prend la page
-française quand la locale est française, l'anglaise sinon.
+La page de man est installée dans les deux langues — l'anglaise dans
+`/usr/share/man/man8/`, la française dans `/usr/share/man/fr/man8/` — donc `man 8
+nas-smartmount` prend celle qui correspond à ta locale. Cette documentation suit la même
+règle : `README.md` en anglais, `README-fr.md` en français.
 
 ## Sans root
 

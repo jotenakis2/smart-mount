@@ -79,10 +79,8 @@ shares are unaffected.
   session. `smart-mount-setup` remains as a two-line wrapper for the old habit.
 - **`--version`**: one line, `smart-mount 1.10`, and it does not read the
   configuration — the line to paste into a bug report.
-- **`--help`**: short French help with the configuration format and the exit codes.
-  That is deliberate: logs, errors and `show` output are in English (they end up in
-  bug reports), while the help, the man page and this documentation are for the human
-  sitting in front of the terminal.
+- **`--help`**: short help, the configuration format and the exit status, in the
+  language of your locale (see Language below).
 - **`show --json`**: the same information as JSON, for a script or a graphical front
   end. Each share carries `options` (as retained) and `runtime_options` (as reported
   by the kernel), `state`, `mounted` and `healthy`. No `jq` dependency: the shell
@@ -247,8 +245,10 @@ stays readable. `SMARTMOUNT_LANG=fr` forces French whatever the locale says. The
 headers and states are translated; **`show --json` values are not** (a script must not
 depend on who calls it).
 
-The man page exists in both languages: `man 8 nas-smartmount` picks the French page
-when your locale is French, the English one otherwise.
+The man page is installed in both languages — the English page at
+`/usr/share/man/man8/`, the French one at `/usr/share/man/fr/man8/` — so `man 8
+nas-smartmount` picks the one matching your locale. This documentation ships the same
+way: `README.md` in English, `README-fr.md` in French.
 
 ## Running it without root
 
