@@ -32,7 +32,7 @@ stub() { # stub <name> <body>
 
 new_case() { # new_case <name>
     CASE_DIR="${TMP}/$1"
-    mkdir -p "${CASE_DIR}/bin" "${CASE_DIR}/mnt"
+    mkdir -p "${CASE_DIR}/bin" "${CASE_DIR}/mnt" "${CASE_DIR}/mnt2"
     CALLS="${CASE_DIR}/calls"
     FLAG="${CASE_DIR}/flag"
     CASE_DEPS=""
@@ -52,16 +52,31 @@ new_case() { # new_case <name>
     stub ip         'printf "ip %s\n" "$*" >> "$CALLS"; exit 0'
     stub iw         'printf "iw %s\n" "$*" >> "$CALLS"; printf "Connected to aa:bb:cc:dd:ee:ff (on wlan0)\n\tSSID: Maison\n\tfreq: 5180\n"'
 
-    cat > "${CASE_DIR}/config" <<EOF
-NFS_SERVER_IP="192.168.1.10"
-NFS_SHAREDPATH="/share"
-MOUNT_POINT="${CASE_DIR}/mnt"
-NFS_OPTS="nodev,nosuid,noexec"
-WIFI_NAME="Maison"
-WIFI_IFACE="wlan0"
-NFS_SERVER_MAC="aa:bb:cc:dd:ee:ff"
-LAN_IFACE="eth0"
-EOF
+    CASE_SHARES=("nfs|192.168.1.10|/share|${CASE_DIR}/mnt|nodev,nosuid,noexec|aa:bb:cc:dd:ee:ff|")
+    CASE_WIFI_NAME="Maison"
+    CASE_WIFI_IFACE="wlan0"
+    CASE_LAN_IFACE="eth0"
+    write_config
+}
+
+write_config() { # écrit la configuration à partir des variables du cas
+    local rec=''
+    {
+        printf 'WIFI_NAME="%s"\n' "${CASE_WIFI_NAME}"
+        printf 'WIFI_IFACE="%s"\n' "${CASE_WIFI_IFACE}"
+        printf 'LAN_IFACE="%s"\n' "${CASE_LAN_IFACE}"
+        printf 'SHARES=(\n'
+        for rec in "${CASE_SHARES[@]}"; do
+            printf '  "%s"\n' "${rec}"
+        done
+        printf ')\n'
+    } > "${CASE_DIR}/config"
+}
+
+set_share_mac() { # set_share_mac <mac> : remplace la MAC du premier partage
+    CASE_SHARES[0]="$(printf '%s' "${CASE_SHARES[0]}" \
+        | awk -v m="$1" -F'|' 'BEGIN{OFS="|"} { $6=m; print }')"
+    write_config
 }
 
 set_config() { # set_config <KEY> <VALUE>
@@ -132,6 +147,10 @@ not_called() { # not_called <pattern> -> "oui" si absent
 
 first_call_line() { # first_call_line <pattern>
     grep -n -m1 -e "$1" "${CALLS}" | cut -d: -f1
+}
+
+called_count() { # called_count <pattern> -> nombre d'occurrences
+    grep -c -- "$1" "${CALLS}" || true
 }
 
 # ---------------------------------------------------------------- cases
@@ -237,7 +256,7 @@ stub ping 'printf "ping %s\n" "$*" >> "$CALLS"; exit 1'
 rc="$(run_script apply)"
 check "serveur injoignable : code 127" 127 "${rc}"
 check "serveur injoignable : pas de mount" oui "$(not_called 'mount -t nfs')"
-check "serveur injoignable : journalise le ping" oui "$(called 'ping test')"
+check "serveur injoignable : journalise l injoignabilité" oui "$(called "injoignable")"
 
 # 12. Échec transitoire du test de santé : le montage est conservé.
 new_case health_flaky
@@ -330,7 +349,7 @@ set_neighbor aa:bb:cc:dd:ee:ff
 rc="$(run_script apply)"
 check "eth + wifi coupé : code 0" 0 "${rc}"
 check "eth + wifi coupé : montage" oui "$(called 'mount -t nfs')"
-check "eth + wifi coupé : ethernet confirmé" oui "$(called "NAS confirmé sur Ethernet")"
+check "eth + wifi coupé : ethernet confirmé" oui "$(called "confirmé sur Ethernet")"
 
 # 21. Wi-Fi étranger mais Ethernet domestique : on garde le montage (l'ancien
 # hook Wi-Fi démontait, l'ancien hook Ethernet montait : ils se battaient).
@@ -341,7 +360,7 @@ set_neighbor aa:bb:cc:dd:ee:ff
 rc="$(run_script apply)"
 check "eth + wifi étranger : code 0" 0 "${rc}"
 check "eth + wifi étranger : aucun démontage" oui "$(not_called '^umount')"
-check "eth + wifi étranger : ethernet confirmé" oui "$(called "NAS confirmé sur Ethernet")"
+check "eth + wifi étranger : ethernet confirmé" oui "$(called "confirmé sur Ethernet")"
 
 # 22. Wi-Fi domestique mais MAC Ethernet étrangère : on garde aussi le montage.
 new_case wifi_trusted_eth_foreign
@@ -365,7 +384,7 @@ check "aucun lien : pas de montage" oui "$(not_called 'mount -t nfs')"
 # 24. MAC comparée sans tenir compte de la casse (config en majuscules).
 new_case mac_case_insensitive
 stub iw 'printf "iw %s\n" "$*" >> "$CALLS"; printf "Not connected.\n"'
-set_config NFS_SERVER_MAC "AA:BB:CC:DD:EE:FF"
+set_share_mac "AA:BB:CC:DD:EE:FF"
 set_neighbor aa:bb:cc:dd:ee:ff
 rc="$(run_script apply)"
 check "mac casse différente : code 0" 0 "${rc}"
@@ -455,7 +474,7 @@ check "dry-run démontage : décision journalisée" oui "$(called '\[dry-run\] d
 
 # 35-38. La MAC cible est l'identité du serveur, exigée sur les deux liens.
 new_case mac_missing_apply
-set_config NFS_SERVER_MAC ""
+set_share_mac ""
 set_neighbor aa:bb:cc:dd:ee:ff
 rc="$(run_script apply)"
 check "sans MAC (apply) : code 4" 4 "${rc}"
@@ -463,7 +482,7 @@ check "sans MAC (apply) : aucun montage" oui "$(not_called 'mount -t nfs')"
 check "sans MAC (apply) : message dédié" oui "$(called 'MAC cible absente')"
 
 new_case mac_missing_mount
-set_config NFS_SERVER_MAC ""
+set_share_mac ""
 set_neighbor aa:bb:cc:dd:ee:ff
 rc="$(run_script mount)"
 check "sans MAC (mount) : code 4" 4 "${rc}"
@@ -511,6 +530,101 @@ stub mountpoint 'printf "mountpoint\n" >> "$CALLS"; exit 0'
 rc="$(run_script unmount)"
 check "dépendance absente : démontage toujours possible" 0 "${rc}"
 check "dépendance absente : umount appelé" oui "$(called '^umount')"
+
+# 42-47. Plusieurs partages, deux types de montage, et l'ancien format de config.
+new_case multi_share_one_present
+# Seul le serveur du premier partage est présent dans la table ARP.
+neighbors aa:bb:cc:dd:ee:ff ""
+CASE_SHARES=(
+    "nfs|192.168.1.10|/share|${CASE_DIR}/mnt|nodev|aa:bb:cc:dd:ee:ff|"
+    "nfs|192.168.1.20|/share2|${CASE_DIR}/mnt2|nodev|11:22:33:44:55:66|"
+)
+write_config
+rc="$(run_script apply)"
+check "multi : code 0" 0 "${rc}"
+check "multi : partage présent monté" oui "$(called '192.168.1.10:/share ')"
+check "multi : partage absent non monté" oui "$(not_called '192.168.1.20:/share2')"
+check "multi : identité du second refusée" oui "$(called 'identité non vérifiée')"
+
+new_case multi_share_both_present
+# Les deux serveurs sont dans la table ARP : les deux partages doivent être montés.
+set_neighbor aa:bb:cc:dd:ee:ff
+CASE_SHARES=(
+    "nfs|192.168.1.10|/share|${CASE_DIR}/mnt|nodev|aa:bb:cc:dd:ee:ff|"
+    "cifs|192.168.1.10|public|${CASE_DIR}/mnt2|vers=3.0|aa:bb:cc:dd:ee:ff|"
+)
+write_config
+rc="$(run_script apply)"
+check "multi deux présents : code 0" 0 "${rc}"
+check "multi deux présents : nfs monté" oui "$(called '192.168.1.10:/share')"
+check "multi deux présents : cifs monté" oui "$(called '//192.168.1.10/public')"
+
+new_case cifs_mount
+neighbors aa:bb:cc:dd:ee:ff ""
+CASE_SHARES=(
+    "cifs|192.168.1.30|public|${CASE_DIR}/mnt|vers=3.0,iocharset=utf8|aa:bb:cc:dd:ee:ff|"
+)
+write_config
+rc="$(run_script apply)"
+check "cifs : code 0" 0 "${rc}"
+check "cifs : montage en -t cifs" oui "$(called 'mount -t cifs')"
+check "cifs : spécification //serveur/partage" oui "$(called '//192.168.1.30/public')"
+check "cifs : options transmises" oui "$(called 'vers=3.0,iocharset=utf8')"
+
+new_case cifs_credentials
+neighbors aa:bb:cc:dd:ee:ff ""
+CASE_CREDS="${CASE_DIR}/credentials-1"
+printf 'username=u\npassword=p\n' > "${CASE_CREDS}"
+chmod 600 "${CASE_CREDS}"
+CASE_SHARES=(
+    "cifs|192.168.1.30|public|${CASE_DIR}/mnt|vers=3.0|aa:bb:cc:dd:ee:ff|${CASE_CREDS}"
+)
+write_config
+rc="$(run_script apply)"
+check "cifs + identifiants : code 0" 0 "${rc}"
+check "cifs + identifiants : option credentials" oui "$(called "credentials=${CASE_CREDS}")"
+
+new_case cifs_credentials_no_duplicate
+neighbors aa:bb:cc:dd:ee:ff ""
+CASE_CREDS="${CASE_DIR}/credentials-1"
+printf 'username=u\npassword=p\n' > "${CASE_CREDS}"
+CASE_SHARES=(
+    "cifs|192.168.1.30|public|${CASE_DIR}/mnt|vers=3.0,credentials=/deja/la|aa:bb:cc:dd:ee:ff|${CASE_CREDS}"
+)
+write_config
+rc="$(run_script apply)"
+check "cifs : pas de doublon credentials" 1 "$(called_count 'credentials=')"
+
+new_case legacy_flat_config
+# Ancien fichier de configuration (un seul partage NFS, variables à plat).
+cat > "${CASE_DIR}/config" <<EOF
+NFS_SERVER_IP="192.168.1.10"
+NFS_SHAREDPATH="/share"
+MOUNT_POINT="${CASE_DIR}/mnt"
+NFS_OPTS="nodev,nosuid,noexec"
+WIFI_NAME="Maison"
+WIFI_IFACE="wlan0"
+NFS_SERVER_MAC="aa:bb:cc:dd:ee:ff"
+LAN_IFACE="eth0"
+EOF
+set_neighbor aa:bb:cc:dd:ee:ff
+rc="$(run_script apply)"
+check "ancien format : code 0" 0 "${rc}"
+check "ancien format : montage" oui "$(called '192.168.1.10:/share')"
+
+new_case bad_share_type
+neighbors aa:bb:cc:dd:ee:ff ""
+CASE_SHARES=("smb|192.168.1.10|/share|${CASE_DIR}/mnt|opts|aa:bb:cc:dd:ee:ff|")
+write_config
+rc="$(run_script apply)"
+check "type inconnu : code 3" 3 "${rc}"
+check "type inconnu : aucun montage" oui "$(not_called 'mount -t')"
+
+new_case no_shares
+CASE_SHARES=()
+write_config
+rc="$(run_script apply)"
+check "aucun partage : code 122" 122 "${rc}"
 
 # ---------------------------------------------------------------- summary
 

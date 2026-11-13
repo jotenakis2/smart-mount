@@ -1,36 +1,39 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.3
+VER=1.5
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
 readonly SCRIPT_NAME="${0##*/}"
 trap 'trap_err "$?"' ERR
 
-# Dépendances dures : sans elles, monter est impossible (mount.nfs) ou perd sa
-# sûreté (ip pour l'identité, timeout pour borner les appels, ping pour la
-# joignabilité). Vide = aucune vérification ; c'est ce que fait tests/run.sh pour
-# ne pas dépendre des paquets installés sur la machine de test.
+# Dépendances dures : sans elles, monter est impossible, ou la décision perd sa
+# sûreté (ip pour l'identité, timeout pour borner, ping pour la joignabilité).
+# Vide = aucune vérification ; c'est ce que fait tests/run.sh pour ne pas dépendre
+# des paquets installés sur la machine de test.
 SMARTMOUNT_DEPS="${SMARTMOUNT_DEPS-mount.nfs ip ping timeout}"
 
-missing_runtime_deps() {
-    local -a deps=()
-    local dep=''
-    local missing=''
-
-    read -r -a deps <<< "${SMARTMOUNT_DEPS}"
-    for dep in "${deps[@]}"; do
-        command -v "${dep}" >/dev/null 2>&1 || missing="${missing} ${dep}"
-    done
-
-    printf '%s' "${missing# }"
-}
+# Renseignée par require_runtime, lue par trap_err (une seule ligne de journal).
+MISSING_DEPS=''
 
 require_runtime() {
+    local extra="${1:-}"
+    local -a deps=()
+    local dep=''
+
     [[ -n "${SMARTMOUNT_DEPS}" ]] || return 0
-    [[ -n "$(missing_runtime_deps)" ]] || return 0
-    return 5   # le message nommant les commandes est émis par trap_err
+
+    MISSING_DEPS=''
+    read -r -a deps <<< "${SMARTMOUNT_DEPS} ${extra}"
+    for dep in "${deps[@]}"; do
+        [[ -n "${dep}" ]] || continue
+        command -v "${dep}" >/dev/null 2>&1 || MISSING_DEPS="${MISSING_DEPS} ${dep}"
+    done
+    MISSING_DEPS="${MISSING_DEPS# }"
+
+    [[ -z "${MISSING_DEPS}" ]] || return 5
+    return 0
 }
 
 #-helpers --------------------------------------------------------------------------------------------
@@ -62,145 +65,57 @@ trap_err() {
     local exit_code="${1}"
     local str=''
     case "${exit_code}" in
-        1)   str="Error mounting ${NFS_SERVER_IP}:${NFS_SHAREDPATH} in ${MOUNT_POINT}";;
-        2)   str="Error unmounting ${MOUNT_POINT}";;
+        1)   str="Error mounting a share (see the log lines above)";;
+        2)   str="Error unmounting a mount point (see the log lines above)";;
         3)   str="${SCRIPT_NAME} syntax error - valid usage is : ${SCRIPT_NAME} {mount|unmount|apply}" ;;
-        4)   str="MAC cible absente de ${CONFIG}: aucun montage possible, renseigner NFS_SERVER_MAC (voir README)";;
-        5)   str="Dépendance(s) manquante(s): $(missing_runtime_deps) — voir README, section Requirements";;
-        122) str="Missing config file (${CONFIG})";;
-        127) str="Error ping test (${NFS_SERVER_IP}) before mounting ${NFS_SERVER_IP}:${NFS_SHAREDPATH} in ${MOUNT_POINT}";;
+        4)   str="MAC cible absente pour un partage: refus de monter (voir README)";;
+        5)   str="Dépendance(s) manquante(s): ${MISSING_DEPS} — voir README, section Requirements";;
+        122) str="Configuration absente ou sans partage (${CONFIG})";;
+        127) str="Un serveur ne répond pas au ping (voir le partage concerné dans le journal)";;
         *)   str="Unknown error";;
     esac
     log_err "${str}"
 }
 
 # SMARTMOUNT_DRY_RUN=1 évalue la politique et journalise la décision sans monter
-# ni démonter : le seul moyen de contrôler le chemin Ethernet sur une machine
-# qui n'en a pas.
+# ni démonter : le seul moyen de contrôler un chemin réseau sur une machine qui
+# n'en a pas.
 dry_run() {
     [[ "${SMARTMOUNT_DRY_RUN:-0}" != "0" ]]
 }
 
 #-------------------------------------------------------------------------------------------------
 
+# Un partage est une ligne de SHARES : sept champs séparés par '|'
+#   type|serveur|partage|point de montage|options|mac|fichier d'identifiants
+# Les champs sont lus par position, jamais réassemblés.
 
-
-mount_nfs() {
-    local nfs_spec="${NFS_SERVER_IP}:${NFS_SHAREDPATH}"
-    local mountpoint_rc=0
-
-    if [[ ! -d "${MOUNT_POINT}" ]]; then
-        if mkdir -p -- "${MOUNT_POINT}" 2>/dev/null; then
-            log_info "Point de montage crée: ${MOUNT_POINT}"
-        else
-            log_err "Impossible de créer le point de montage: ${MOUNT_POINT}"
-            return 1
-        fi
-    fi
-
-    # `mountpoint` interroge le serveur quand les attributs ne sont plus en
-    # cache : on le borne, sinon un NAS mort fige le timer. 124 = expiré.
-    timeout 5 mountpoint -q -- "${MOUNT_POINT}" >/dev/null 2>&1 || mountpoint_rc=$?
-
-    if [[ ${mountpoint_rc} -eq 0 ]]; then
-        if mount_is_healthy; then
-            log_notice "Deja monté et sain: ${MOUNT_POINT}"
-            return 0
-        fi
-        # Un test de santé peut échouer sur une coupure Wi-Fi de deux secondes :
-        # on confirme avant de détruire un montage qui fonctionne.
-        sleep 2
-        if mount_is_healthy; then
-            log_notice "Deja monté et sain au second essai: ${MOUNT_POINT}"
-            return 0
-        fi
-        log_warning "Montage présent mais muet (${MOUNT_POINT}): réparation"
-        if ! unmount_nfs; then
-            log_err "Réparation impossible: ${MOUNT_POINT} reste monté et muet"
-            return 1
-        fi
-    elif [[ ${mountpoint_rc} -eq 124 ]]; then
-        log_warning "Vérification de ${MOUNT_POINT} expirée: réparation"
-        # Si rien n'est monté, `umount -l` échoue : ce n'est pas une raison de
-        # renoncer au montage, on laisse la tentative suivante trancher.
-        if ! umount_lazy_nfs; then
-            log_warning "Rien à démonter paresseusement (${MOUNT_POINT}), tentative de montage"
-        fi
-    fi
-
-    if ping -c 1 -i 0.2 -W 2 -w 3 "${NFS_SERVER_IP}" &>/dev/null; then
-        if dry_run; then
-            log_notice "[dry-run] montage ${nfs_spec} -> ${MOUNT_POINT} non effectué"
-            return 0
-        fi
-        if mount -t nfs -o "${NFS_OPTS}" -- "${nfs_spec}" "${MOUNT_POINT}" 2>/dev/null; then
-            log_info "Montage réussi: ${nfs_spec} -> ${MOUNT_POINT}"
-            return 0
-        else
-            return 1
-        fi
-    else
-        return 127
-    fi
+share_field() { # share_field <record> <index 1..7>
+    local -a f=()
+    IFS='|' read -r -a f <<< "${1:-}"
+    local idx=$(( ${2:-1} - 1 ))
+    printf '%s' "${f[${idx}]:-}"
 }
 
-# Un montage NFS peut survivre au serveur : le point existe, mais plus aucune
-# requête n'aboutit. On teste les deux appels qui touchent réellement le
-# serveur (statfs puis lecture du répertoire), bornés par timeout.
-mount_is_healthy() {
-    # Sans `timeout` (coreutils), un test de santé sur un serveur mort peut se
-    # bloquer : dans le doute, on ne conclut pas et on ne démonte rien.
-    if ! command -v timeout >/dev/null 2>&1; then
-        return 0
-    fi
-    timeout 5 stat -f -- "${MOUNT_POINT}" >/dev/null 2>&1 || return 1
-    timeout 5 ls -- "${MOUNT_POINT}" >/dev/null 2>&1 || return 1
-    return 0
+share_spec() { # share_spec <type> <serveur> <partage>
+    case "${1:-}" in
+        cifs) printf '//%s/%s' "${2:-}" "${3#/}" ;;
+        *)    printf '%s:%s' "${2:-}" "${3:-}" ;;
+    esac
 }
 
-unmount_nfs() {
-    local mountpoint_rc=0
-
-    timeout 5 mountpoint -q -- "${MOUNT_POINT}" >/dev/null 2>&1 || mountpoint_rc=$?
-
-    # 1 = franchement pas monté. 0 = monté. 124 = expiré, on tente quand même.
-    if [[ ${mountpoint_rc} -eq 1 ]]; then
-        log_notice "OK, déjà démonté: ${MOUNT_POINT}"
-        return 0
-    fi
-
-    if dry_run; then
-        log_notice "[dry-run] démontage de ${MOUNT_POINT} non effectué"
-        return 0
-    fi
-
-    if timeout 10 umount -- "${MOUNT_POINT}" 2>/dev/null; then
-        log_info "Démontage réussi: ${MOUNT_POINT}"
-        return 0
-    fi
-
-    # Cas courant : un shell ou un IDE ouvert dans le partage. Sans ce repli le
-    # portable part avec un montage dur actif et fige au prochain accès.
-    log_warning "Démontage bloqué (point de montage occupé ?), repli paresseux"
-    if umount_lazy_nfs; then
-        return 0
-    fi
-
-    return 2
+# `mount -t cifs` demande mount.cifs : on ne l'exige que si un partage CIFS existe.
+share_extra_deps() {
+    local share=''
+    for share in "${SHARES[@]}"; do
+        case "${share}" in
+            cifs\|*) printf 'mount.cifs'; return 0 ;;
+        esac
+    done
 }
 
-# Repli quand le point est occupé (shell ou IDE ouvert dans le partage) : sans
-# lui le portable part avec un montage dur actif et fige au prochain accès.
-umount_lazy_nfs() {
-    if timeout 10 umount -l -- "${MOUNT_POINT}" 2>/dev/null; then
-        log_notice "Démontage paresseux effectué: ${MOUNT_POINT}"
-        return 0
-    fi
-    return 2
-}
-
-# L'état Wi-Fi est distingué en trois cas : sinon une lecture ratée (cache de
-# scan vide, interface absente) serait confondue avec « pas le bon réseau » et
+# L'état Wi-Fi est distingué en trois cas : sinon une lecture ratée (cache de scan
+# vide, interface absente) serait confondue avec « pas le bon réseau » et
 # provoquerait un démontage destructeur.
 #   0 = connecté, le SSID est écrit sur la sortie standard
 #   1 = pas connecté (état certain)
@@ -245,7 +160,7 @@ get_current_wifi() {
     return 2
 }
 
-get_neighbor_mac() {
+get_neighbor_mac() { # get_neighbor_mac <ip> <iface>
     local ip_addr="${1:-}"
     local iface="${2:-}"
     local out=''
@@ -259,8 +174,8 @@ get_neighbor_mac() {
         out="$(ip neigh show "${ip_addr}" 2>/dev/null)"
     fi
 
-    # La position de la MAC change selon les arguments : `ip neigh show IP`
-    # imprime « IP dev IF lladdr MAC ETAT » alors que `... IP dev IF` imprime
+    # La position de la MAC change selon les arguments : `ip neigh show IP` imprime
+    # « IP dev IF lladdr MAC ETAT » alors que `... IP dev IF` imprime
     # « IP lladdr MAC ETAT ». On se place donc après le mot-clé, jamais sur $5.
     printf '%s\n' "${out}" \
         | awk '{ for (i = 1; i < NF; i++) if ($i == "lladdr") { print $(i + 1); exit } }'
@@ -270,17 +185,16 @@ refresh_neighbor() {
     ping -c 1 -i 0.2 -W 2 -w 3 "${1:-}" >/dev/null 2>&1 || true
 }
 
-# Identité du serveur sur un lien : le voisin à l'adresse du NAS doit porter la
-# MAC cible. On l'exige sur les deux liens (Wi-Fi comme Ethernet) : le SSID seul
-# n'identifie pas un serveur, n'importe quel réseau du même nom ferait monter.
-# Sans entrée ARP on réveille le voisinage une fois puis on relit. Pas d'entrée
-# du tout = identité non vérifiée, donc pas de montage.
-# Limite connue : si le NAS est derrière un routeur (autre sous-réseau ou VLAN),
-# la MAC lue est celle du routeur ; c'est alors cette MAC qu'il faut configurer.
-neighbor_is_target() {
+# Identité du serveur sur un lien : le voisin à son adresse doit porter la MAC
+# cible. On l'exige sur les deux liens : le SSID seul n'identifie pas un serveur.
+# Sans entrée ARP on réveille le voisinage une fois puis on relit. Pas d'entrée du
+# tout = identité non vérifiée, donc pas de montage pour ce partage.
+# Limite connue : si le serveur est derrière un routeur (autre sous-réseau ou
+# VLAN), la MAC lue est celle du routeur ; c'est cette MAC qu'il faut configurer.
+neighbor_is_target() { # neighbor_is_target <iface> <ip> <mac attendue>
     local iface="${1:-}"
-    local ip_addr="${NFS_SERVER_IP:-}"
-    local want="${NFS_SERVER_MAC:-}"
+    local ip_addr="${2:-}"
+    local want="${3:-}"
     local mac=''
 
     if [[ -z "${iface}" || -z "${ip_addr}" || -z "${want}" ]]; then
@@ -294,70 +208,254 @@ neighbor_is_target() {
     fi
 
     if [[ -z "${mac}" ]]; then
-        log_info "Aucun voisin à ${ip_addr} sur ${iface}: identité non vérifiée"
+        log_info "${ip_addr} absent de la table ARP de ${iface}: identité non vérifiée"
         return 1
     fi
 
     if [[ "${mac,,}" != "${want,,}" ]]; then
-        log_notice "MAC détectée ${mac} sur ${iface}, attendue ${want}: identité refusée"
+        log_notice "MAC ${mac} sur ${iface} pour ${ip_addr}, attendue ${want}: identité refusée"
         return 1
     fi
 
-    log_notice "NAS confirmé: ${ip_addr} sur ${iface} (${mac})"
+    log_notice "Serveur confirmé: ${ip_addr} sur ${iface} (${mac})"
     return 0
 }
 
-# Une seule décision pour les deux liens : chaque lien doit être à la fois le bon
-# réseau ET le bon serveur ; il suffit que l'un des deux le soit pour monter, et
-# il faut que les deux soient écartés sans ambiguïté pour démonter. Avant, chaque
-# hook décidait de son côté et pouvait défaire le travail de l'autre.
-apply_policy() {
-    local ssid='' state=0
+# Un montage peut survivre au serveur : le point existe, mais plus aucune requête
+# n'aboutit. On teste les deux appels qui touchent réellement le serveur (statfs
+# puis lecture du répertoire), bornés par timeout.
+mount_is_healthy() { # mount_is_healthy <point>
+    # Sans `timeout` (coreutils), un test de santé sur un serveur mort peut se
+    # bloquer : dans le doute, on ne conclut pas et on ne démonte rien.
+    if ! command -v timeout >/dev/null 2>&1; then
+        return 0
+    fi
+    timeout 5 stat -f -- "${1:-}" >/dev/null 2>&1 || return 1
+    timeout 5 ls -- "${1:-}" >/dev/null 2>&1 || return 1
+    return 0
+}
 
-    require_runtime || return 5
+umount_lazy() { # umount_lazy <point>
+    local mount="${1:-}"
+    if timeout 10 umount -l -- "${mount}" 2>/dev/null; then
+        log_notice "[${mount}] démontage paresseux effectué"
+        return 0
+    fi
+    return 2
+}
 
-    # Sans MAC cible, l'identité du serveur ne peut pas être vérifiée : on refuse
-    # de monter plutôt que de monter sur un inconnu. Code dédié (4).
-    if [[ -z "${NFS_SERVER_MAC:-}" ]]; then
-        return 4   # message dédié par trap_err
+unmount_one() { # unmount_one <point>
+    local mount="${1:-}"
+    local mountpoint_rc=0
+
+    timeout 5 mountpoint -q -- "${mount}" >/dev/null 2>&1 || mountpoint_rc=$?
+
+    # 1 = franchement pas monté. 0 = monté. 124 = expiré, on tente quand même.
+    if [[ ${mountpoint_rc} -eq 1 ]]; then
+        log_notice "[${mount}] déjà démonté"
+        return 0
+    fi
+
+    if dry_run; then
+        log_notice "[dry-run] démontage de ${mount} non effectué"
+        return 0
+    fi
+
+    if timeout 10 umount -- "${mount}" 2>/dev/null; then
+        log_info "[${mount}] démontage réussi"
+        return 0
+    fi
+
+    # Cas courant : un shell ou un IDE ouvert dans le partage. Sans ce repli le
+    # portable part avec un montage dur actif et fige au prochain accès.
+    log_warning "[${mount}] démontage bloqué (point occupé ?), repli paresseux"
+    if umount_lazy "${mount}"; then
+        return 0
+    fi
+
+    return 2
+}
+
+mount_one() { # mount_one <type> <serveur> <partage> <point> <options> <identifiants>
+    local type="${1:-}"
+    local server="${2:-}"
+    local path="${3:-}"
+    local mount="${4:-}"
+    local opts="${5:-}"
+    local creds="${6:-}"
+    local spec='' mountpoint_rc=0
+
+    spec="$(share_spec "${type}" "${server}" "${path}")"
+
+    if [[ ! -d "${mount}" ]]; then
+        if mkdir -p -- "${mount}" 2>/dev/null; then
+            log_info "[${mount}] point de montage créé"
+        else
+            log_err "[${mount}] impossible de créer le point de montage"
+            return 1
+        fi
+    fi
+
+    # `mountpoint` interroge le serveur quand les attributs ne sont plus en cache :
+    # on le borne, sinon un serveur mort fige le timer. 124 = expiré.
+    timeout 5 mountpoint -q -- "${mount}" >/dev/null 2>&1 || mountpoint_rc=$?
+
+    if [[ ${mountpoint_rc} -eq 0 ]]; then
+        if mount_is_healthy "${mount}"; then
+            log_notice "[${mount}] déjà monté et sain"
+            return 0
+        fi
+        # Un test de santé peut échouer sur une coupure de deux secondes : on
+        # confirme avant de détruire un montage qui fonctionne.
+        sleep 2
+        if mount_is_healthy "${mount}"; then
+            log_notice "[${mount}] déjà monté et sain au second essai"
+            return 0
+        fi
+        log_warning "[${mount}] montage muet: réparation"
+        if ! unmount_one "${mount}"; then
+            log_err "[${mount}] réparation impossible: reste monté et muet"
+            return 1
+        fi
+    elif [[ ${mountpoint_rc} -eq 124 ]]; then
+        log_warning "[${mount}] vérification expirée: réparation"
+        # Si rien n'est monté, `umount -l` échoue : ce n'est pas une raison de
+        # renoncer au montage, on laisse la tentative suivante trancher.
+        if ! umount_lazy "${mount}"; then
+            log_warning "[${mount}] rien à démonter paresseusement, tentative de montage"
+        fi
+    fi
+
+    if ! ping -c 1 -i 0.2 -W 2 -w 3 "${server}" >/dev/null 2>&1; then
+        log_info "[${mount}] ${server} injoignable, pas de montage"
+        return 127
+    fi
+
+    # Les identifiants CIFS passent par un fichier 0600, jamais par -o : la ligne
+    # de commande est lisible par tous les utilisateurs (ps).
+    if [[ -n "${creds}" && -f "${creds}" ]]; then
+        case ",${opts}," in
+            *,credentials=*) : ;;
+            *) opts="${opts:+${opts},}credentials=${creds}" ;;
+        esac
+    fi
+
+    if dry_run; then
+        log_notice "[dry-run] montage ${spec} -> ${mount} non effectué"
+        return 0
+    fi
+
+    local -a args=(-t "${type}")
+    [[ -n "${opts}" ]] && args+=(-o "${opts}")
+    args+=(-- "${spec}" "${mount}")
+
+    if mount "${args[@]}" 2>/dev/null; then
+        log_info "[${mount}] montage réussi: ${spec}"
+        return 0
+    fi
+
+    log_err "[${mount}] échec du montage de ${spec}"
+    return 1
+}
+
+# Politique d'un partage : chaque lien doit être à la fois le bon réseau ET le bon
+# serveur. Il suffit que l'un des deux le soit pour monter ; il faut que les deux
+# soient écartés sans ambiguïté pour démonter. En mode `mount` on ne démonte jamais.
+apply_share() { # apply_share <record> <ssid> <état wifi> <apply|mount>
+    local record="${1:-}"
+    local ssid="${2:-}"
+    local state="${3:-2}"
+    local mode="${4:-apply}"
+
+    local type='' server='' path='' mount='' opts='' mac='' creds=''
+    type="$(share_field "${record}" 1)"
+    server="$(share_field "${record}" 2)"
+    path="$(share_field "${record}" 3)"
+    mount="$(share_field "${record}" 4)"
+    opts="$(share_field "${record}" 5)"
+    mac="$(share_field "${record}" 6)"
+    creds="$(share_field "${record}" 7)"
+
+    if [[ -z "${type}" || -z "${server}" || -z "${path}" || -z "${mount}" ]]; then
+        log_err "Enregistrement de partage invalide: ${record}"
+        return 3
+    fi
+
+    if [[ "${type}" != "nfs" && "${type}" != "cifs" ]]; then
+        log_err "[${mount}] type de partage inconnu: ${type}"
+        return 3
+    fi
+
+    # L'identité du serveur ne se devine pas : sans MAC cible, pas de montage.
+    if [[ -z "${mac}" ]]; then
+        log_err "[${mount}] MAC cible absente: refus de monter"
+        return 4
+    fi
+
+    if [[ ${state} -eq 0 && "${ssid}" == "${WIFI_NAME}" ]] \
+        && neighbor_is_target "${WIFI_IFACE:-}" "${server}" "${mac}"; then
+        log_info "[${mount}] Wi-Fi ciblé (${ssid}) et ${server} confirmé: montage attendu"
+        mount_one "${type}" "${server}" "${path}" "${mount}" "${opts}" "${creds}"
+        return
+    fi
+
+    if neighbor_is_target "${LAN_IFACE:-}" "${server}" "${mac}"; then
+        log_info "[${mount}] ${server} confirmé sur Ethernet: montage attendu"
+        mount_one "${type}" "${server}" "${path}" "${mount}" "${opts}" "${creds}"
+        return
+    fi
+
+    if [[ ${state} -eq 2 ]]; then
+        log_warning "[${mount}] SSID illisible et ${server} non confirmé: aucune action"
+        return 0
+    fi
+
+    if [[ "${mode}" == "mount" ]]; then
+        log_info "[${mount}] aucun lien confirmé, pas de montage"
+        return 0
+    fi
+
+    if [[ ${state} -eq 0 && "${ssid}" == "${WIFI_NAME}" ]]; then
+        log_info "[${mount}] Wi-Fi ciblé mais ${server} non confirmé: montage non attendu"
+    else
+        log_info "[${mount}] réseau non reconnu pour ${server}: montage non attendu"
+    fi
+    unmount_one "${mount}"
+}
+
+run_policy() { # run_policy <apply|mount>
+    local mode="${1:-apply}"
+    local ssid='' state=0 rc=0 share=''
+
+    require_runtime "$(share_extra_deps)" || return 5
+
+    if [[ ${#SHARES[@]} -eq 0 ]]; then
+        log_err "Aucun partage configuré dans ${CONFIG}"
+        return 122
     fi
 
     ssid="$(get_current_wifi)"
     state=$?
 
-    if [[ ${state} -eq 0 && "${ssid}" == "${WIFI_NAME}" ]]; then
-        if neighbor_is_target "${WIFI_IFACE:-}"; then
-            log_info "Wi-Fi ciblé (${ssid}) et NAS confirmé: montage attendu"
-            mount_nfs
-            return
-        fi
-        log_notice "Wi-Fi ciblé (${ssid}) mais NAS non confirmé: on regarde l'Ethernet"
-    fi
+    for share in "${SHARES[@]}"; do
+        apply_share "${share}" "${ssid}" "${state}" "${mode}" || rc=$?
+    done
 
-    if neighbor_is_target "${LAN_IFACE:-}"; then
-        log_info "NAS confirmé sur Ethernet: montage attendu"
-        mount_nfs
-        return
-    fi
+    return ${rc}
+}
 
-    if [[ ${state} -eq 2 ]]; then
-        log_warning "SSID illisible et NAS non confirmé: aucune action"
-        return 0
-    fi
-
-    if [[ ${state} -eq 1 ]]; then
-        log_info "Ni Wi-Fi ciblé ni NAS confirmé sur Ethernet: montage non attendu"
-    elif [[ "${ssid}" == "${WIFI_NAME}" ]]; then
-        log_info "Wi-Fi ciblé (${ssid}) mais NAS non confirmé: montage non attendu"
-    else
-        log_info "Wi-Fi étranger (${ssid}) et NAS non confirmé sur Ethernet: montage non attendu"
-    fi
-    unmount_nfs
+unmount_all() {
+    local rc=0 share=''
+    for share in "${SHARES[@]}"; do
+        unmount_one "$(share_field "${share}" 4)" || rc=$?
+    done
+    return ${rc}
 }
 
 main() {
     local action="${1:-}"
-    local ssid='' state=0
+
+    SHARES=()
 
     if [[ -f "${CONFIG}" ]]; then
         # shellcheck disable=SC1090
@@ -366,28 +464,16 @@ main() {
         return 122
     fi
 
+    # Compatibilité : un fichier de configuration antérieur (un seul partage NFS,
+    # variables à plat) reste lisible sans migration préalable.
+    if [[ ${#SHARES[@]} -eq 0 && -n "${NFS_SERVER_IP:-}" ]]; then
+        SHARES=("nfs|${NFS_SERVER_IP}|${NFS_SHAREDPATH:-}|${MOUNT_POINT:-}|${NFS_OPTS:-}|${NFS_SERVER_MAC:-}|")
+    fi
+
     case "${action}" in
-        mount)
-            # Verbe historique : monte si l'un des deux liens est à la fois le
-            # bon réseau et le bon serveur, mais ne démonte jamais.
-            require_runtime || return 5
-            if [[ -z "${NFS_SERVER_MAC:-}" ]]; then
-                return 4   # message dédié par trap_err
-            fi
-            ssid="$(get_current_wifi)"
-            state=$?
-            if [[ ${state} -eq 0 && "${ssid}" == "${WIFI_NAME}" ]] \
-                && neighbor_is_target "${WIFI_IFACE:-}"; then
-                mount_nfs
-            elif neighbor_is_target "${LAN_IFACE:-}"; then
-                mount_nfs
-            else
-                log_info "Aucun lien confirmé, pas de NFS à monter"
-                return 0
-            fi
-            ;;
-        unmount) unmount_nfs ;;
-        apply)   apply_policy ;;
+        mount)   run_policy mount ;;
+        unmount) unmount_all ;;
+        apply)   run_policy apply ;;
         *)       return 3 ;;
     esac
 }
