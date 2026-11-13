@@ -79,8 +79,9 @@ dans `/etc/NetworkManager/dispatcher.d`, le script dans `/usr/local/bin` et les 
 dans `/etc/systemd/system`, puis active le timer.
 
 Le questionnaire utilise `/etc/fstab` et la connexion active comme valeurs par
-défaut, détecte l'adresse MAC du serveur, et réécrit une entrée `fstab` en conflit
-pour éviter un double montage au démarrage (une sauvegarde est conservée).
+défaut, détecte l'adresse MAC du serveur, et ajuste une entrée `fstab` en conflit
+pour éviter un double montage au démarrage (une sauvegarde est conservée) — voir
+ci-dessous.
 
 ## Configuration
 
@@ -108,6 +109,37 @@ LAN_IFACE="eth0"
   toujours pas, il explique la procédure et laisse le champ vide : il faut alors
   renseigner `NFS_SERVER_MAC` dans `/etc/smart-mount/config` (ou relancer
   `sudo make install`). Rien ne montera tant que ce n'est pas fait.
+
+### À propos de `/etc/fstab`
+
+**Aucune entrée `fstab` n'est nécessaire.** smart-mount monte le partage lui-même
+(`mount -t nfs -o <NFS_OPTS> <serveur>:<partage> <point>`), crée le point de montage
+si besoin, et ne lit jamais `/etc/fstab` à l'exécution.
+
+Le questionnaire ne touche à `fstab` que dans deux cas, et il ne modifie rien quand
+aucune entrée ne correspond :
+
+1. **Valeurs par défaut.** Une entrée `nfs`/`nfs4` existante — la première trouvée,
+   quel que soit le serveur — sert de valeur pré-remplie pour le serveur, le partage,
+   le point de montage et les options. Sans entrée, ces champs sont simplement vides.
+2. **Suppression d'un conflit.** Si une entrée correspond *exactement* au
+   `serveur:partage` configuré **et** au point de montage, ses options sont réécrites
+   pour ajouter `noauto` (et retirer `x-systemd.automount`), afin que le démarrage ne
+   monte pas le même partage une seconde fois dans le dos de smart-mount. Une
+   sauvegarde est écrite à côté : `/etc/fstab.smart-mount.bak.<date>`. Toutes les
+   autres lignes — et toute entrée qui ne correspond pas — restent intactes.
+
+```
+# avant
+192.168.50.85:/volume1/share  /media/NAS  nfs4  rw,relatime,x-systemd.automount  0 0
+# après
+192.168.50.85:/volume1/share  /media/NAS  nfs4  rw,relatime,noauto  0 0
+```
+
+Garder une entrée est un choix valable — pratique si d'autres outils ou unités systemd
+doivent connaître le partage — à condition qu'elle ne se monte pas automatiquement au
+démarrage : avec `noauto`, c'est smart-mount qui monte au boot (hook + timer).
+`make uninstall` laisse cette réécriture en place ; voir Désinstallation.
 
 ## Tests
 

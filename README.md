@@ -78,8 +78,8 @@ git clone https://github.com/jotenakis2/smart-mount && cd smart-mount && sudo ma
 `/etc/systemd/system`, then enables the timer.
 
 The wizard uses `/etc/fstab` and the active connection as defaults, detects the
-server's MAC address, and rewrites a conflicting `fstab` entry so the share is not
-mounted twice at boot (a backup is kept).
+server's MAC address, and adjusts a conflicting `fstab` entry so the share is not
+mounted twice at boot (a backup is kept) — see below.
 
 ## Configuration
 
@@ -106,6 +106,37 @@ LAN_IFACE="eth0"
   cannot find it, it explains the procedure and leaves the field empty: you then set
   `NFS_SERVER_MAC` in `/etc/smart-mount/config` (or re-run `sudo make install`).
   Nothing mounts until that is done.
+
+### About `/etc/fstab`
+
+**No `fstab` entry is required.** smart-mount mounts the share itself
+(`mount -t nfs -o <NFS_OPTS> <server>:<share> <mountpoint>`), creates the mount point
+if needed, and never reads `/etc/fstab` at runtime.
+
+The wizard touches `fstab` for two reasons only, and both leave it untouched when
+nothing matches:
+
+1. **Defaults.** An existing `nfs`/`nfs4` entry — the first one found, whatever the
+   server — is offered as pre-filled values for the server, the share, the mount point
+   and the options. With no entry, those fields are simply empty.
+2. **Conflict removal.** When an entry matches *exactly* the configured `server:share`
+   **and** mount point, its options are rewritten to add `noauto` (and drop
+   `x-systemd.automount`), so the boot does not mount the same share a second time
+   behind smart-mount's back. A backup is written next to it:
+   `/etc/fstab.smart-mount.bak.<date>`. Every other line — and any entry that does not
+   match — is left alone.
+
+```
+# before
+192.168.50.85:/volume1/share  /media/NAS  nfs4  rw,relatime,x-systemd.automount  0 0
+# after
+192.168.50.85:/volume1/share  /media/NAS  nfs4  rw,relatime,noauto  0 0
+```
+
+Keeping an entry is a valid choice — handy if other tools or systemd units need to
+know about the share — as long as it does not auto-mount at boot: with `noauto`, boot
+mounting is smart-mount's job (hook + timer). `make uninstall` leaves the rewrite in
+place; see Uninstall.
 
 ## Tests
 
