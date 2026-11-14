@@ -290,6 +290,16 @@ stub umount 'printf "umount %s\n" "$*" >> "$CALLS"; exit 1'
 rc="$(run_script unmount)"
 check "démontage impossible : code 2" 2 "${rc}"
 
+# 5bis. Déjà démonté : util-linux renvoie 32 (« pas un point de montage ») et
+# non 1. Ne pas le reconnaître menait à un umount inutile, annoncé « busy ».
+new_case already_unmounted
+stub mountpoint 'printf "mountpoint\n" >> "$CALLS"; exit 32'
+stub umount 'printf "umount %s\n" "$*" >> "$CALLS"; exit 1'
+rc="$(run_script unmount)"
+check "déjà démonté (rc 32) : code 0" 0 "${rc}"
+check "déjà démonté (rc 32) : aucun umount tenté" oui "$(not_called '^umount')"
+check "déjà démonté (rc 32) : annoncé tel quel" oui "$(called 'already unmounted')"
+
 # 6. SSID illisible : on ne touche à rien (surtout pas démonter).
 new_case ssid_unknown
 stub mountpoint 'printf "mountpoint\n" >> "$CALLS"; exit 0'

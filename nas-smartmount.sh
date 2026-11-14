@@ -558,11 +558,17 @@ unmount_one() { # unmount_one <point>
 
     timeout 5 mountpoint -q -- "${mount}" >/dev/null 2>&1 || mountpoint_rc=$?
 
-    # 1 = franchement pas monté. 0 = monté. 124 = expiré, on tente quand même.
-    if [[ ${mountpoint_rc} -eq 1 ]]; then
-        log_notice "$(msg already_unmounted "${mount}")"
-        return 0
-    fi
+    # util-linux : 0 = monté, 32 = pas un point de montage, 1 = erreur,
+    # 124 = expiré (serveur muet, on tente quand même). Confondre 32 et 1
+    # menait à un `umount` inutile sur un point déjà démonté, annoncé « busy »
+    # puis « Error unmounting » à chaque passage.
+    case "${mountpoint_rc}" in
+        0|124) : ;;
+        *)
+            log_notice "$(msg already_unmounted "${mount}")"
+            return 0
+            ;;
+    esac
 
     if dry_run; then
         log_notice "$(msg dry_unmount "${mount}")"
