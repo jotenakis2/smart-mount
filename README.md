@@ -327,10 +327,22 @@ server (`mount.cifs` is exercised through a stub only).
 - On the Wi-Fi side, a cold ARP cache needs one ping to resolve; a server that filters
   ICMP must already be present in the ARP table, otherwise the identity cannot be
   confirmed and the share will not mount.
-- Default NFS options include neither `soft` nor `timeo`: a hard mount plus a server
-  that disappears can freeze accesses for as long as the RPC timeouts last. The hooks
-  unmount on network loss, the timer repairs dead mounts, and the share options are
-  yours to tune.
+- NFS shares are mounted `hard`, and the wizard proposes it explicitly: writing `soft`
+  shows what it costs before it is accepted. Measured on a real NAS: 2 GB being written
+  when the server vanished for 3 minutes resumed on its own and finished with no loss
+  (216 s total instead of 37 s, `dd` exit code 0). The price is a freeze that no signal
+  can interrupt — `kill -9` stays queued until the server answers again. With `soft` the
+  same outage would fail the transfer halfway, and a truncated file can pass unnoticed.
+- A **lazy unmount does not release a blocked writer**. It detaches the mount point from
+  the tree, but the superblock survives, the process stays in `D`, and its I/O resumes
+  when the server returns. The journal says so — `detached, but N process(es) still hold
+  it` — and while a session to that server is still alive in the kernel
+  (`/proc/fs/nfsfs/volumes` for NFS, `/proc/fs/cifs/DebugData` for CIFS) the mount is
+  deferred rather than opening a second client on the same export. The deferral is
+  bounded: after 3 consecutive runs (about 45 minutes, `SMARTMOUNT_MAX_DEFER`) the share
+  is mounted anyway and the journal says so, so a NAS that never comes back cannot keep
+  it unmounted forever. A writer blocked forever is released only by a reboot — that is
+  what `hard` promises, and it is why the wizard shows the cost before accepting `soft`.
 - **Not planned**: several addresses for one share. A share holds one server address, so
   a NAS that gets a different IP per network (DHCP leases) needs a reserved lease, not a
   second record.

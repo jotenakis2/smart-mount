@@ -339,10 +339,24 @@ serveur CIFS (`mount.cifs` n'est exercé qu'à travers un stub).
 - Côté Wi-Fi, un cache ARP froid demande un ping pour se remplir ; un serveur qui filtre
   l'ICMP doit déjà être présent dans la table ARP, sinon l'identité ne peut pas être
   confirmée et le partage ne montera pas.
-- Les options NFS par défaut n'incluent ni `soft` ni `timeo` : un montage dur avec un
-  serveur qui disparaît peut figer les accès aussi longtemps que durent les timeouts RPC.
-  Les hooks démontent à la perte du réseau, le timer répare les montages morts, et les
-  options des partages vous appartiennent.
+- Les partages NFS sont montés `hard`, et le questionnaire le propose explicitement :
+  saisir `soft` affiche ce que cela coûte avant de l'accepter. Mesuré sur un vrai NAS :
+  2 Go en cours d'écriture quand le serveur a disparu 3 minutes ont repris seuls et se
+  sont terminés sans perte (216 s au total au lieu de 37, `dd` en code 0). Le prix est un
+  figement qu'aucun signal n'interrompt — `kill -9` reste en attente jusqu'au retour du
+  serveur. Avec `soft`, la même panne ferait échouer le transfert en route, et un fichier
+  tronqué peut passer inaperçu.
+- Un **démontage paresseux ne libère pas un écrivain bloqué**. Il détache le point de
+  montage de l'arborescence, mais le superbloc survit, le processus reste en `D`, et ses
+  E/S reprennent au retour du serveur. Le journal le dit — « détaché, mais N processus le
+  tiennent encore » — et tant qu'une session vers ce serveur reste vivante dans le noyau
+  (`/proc/fs/nfsfs/volumes` pour NFS, `/proc/fs/cifs/DebugData` pour CIFS), le montage est
+  reporté plutôt que d'ouvrir un second client sur le même export. Le report est borné :
+  après 3 passages consécutifs (environ 45 minutes, `SMARTMOUNT_MAX_DEFER`), le partage
+  est monté quand même et le journal le dit — un NAS qui ne revient jamais ne peut donc
+  pas le laisser démonté indéfiniment. Un écrivain bloqué pour toujours n'est libéré que
+  par un redémarrage : c'est ce que promet `hard`, et c'est pourquoi le questionnaire
+  affiche le prix avant d'accepter `soft`.
 - **Pas prévu** : plusieurs adresses pour un même partage. Un enregistrement porte une
   adresse de serveur ; un NAS qui change d'IP selon le réseau (baux DHCP) relève d'un bail
   réservé, pas d'un second enregistrement.
