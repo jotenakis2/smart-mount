@@ -1,4 +1,4 @@
-.TH NAS-SMARTMOUNT 8 "2026-11-13" "smart-mount 1.24" "System Administration Manual"
+.TH NAS-SMARTMOUNT 8 "2026-11-14" "smart-mount 1.25" "System Administration Manual"
 .SH NAME
 nas-smartmount \- mount NFS and CIFS shares only on the right network, from the
 right server
@@ -236,13 +236,13 @@ Compatibility symlink (the command was renamed when CIFS support arrived).
 Wrapper around
 .BR "nas-smartmount.sh setup" .
 .TP
-.I /etc/NetworkManager/dispatcher.d/98-eth-nfs-mac
+.I /etc/NetworkManager/dispatcher.d/98-eth-nas-mac
 Ethernet hook.
 .TP
-.I /etc/NetworkManager/dispatcher.d/99-wifi-nfs-mount
+.I /etc/NetworkManager/dispatcher.d/99-wifi-nas-mount
 Wi-Fi hook.
 .TP
-.I /etc/systemd/system/nfs-network-check.{service,timer}
+.I /etc/systemd/system/nas-network-check.{service,timer}
 Periodic policy run, every 15 minutes.
 .TP
 .I /usr/share/polkit-1/actions/org.jotenakis.smartmount.policy

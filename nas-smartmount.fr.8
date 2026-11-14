@@ -1,4 +1,4 @@
-.TH NAS-SMARTMOUNT 8 "2026-11-13" "smart-mount 1.24" "Manuel d'administration système"
+.TH NAS-SMARTMOUNT 8 "2026-11-14" "smart-mount 1.25" "Manuel d'administration système"
 .SH NOM
 nas-smartmount \- monter des partages NFS et CIFS seulement sur le bon réseau,
 depuis le bon serveur
@@ -212,13 +212,13 @@ Le programme.
 .I /usr/local/bin/smart-mount-setup
 Le questionnaire de configuration.
 .TP
-.I /etc/NetworkManager/dispatcher.d/98-eth-nfs-mac
+.I /etc/NetworkManager/dispatcher.d/98-eth-nas-mac
 Hook Ethernet.
 .TP
-.I /etc/NetworkManager/dispatcher.d/99-wifi-nfs-mount
+.I /etc/NetworkManager/dispatcher.d/99-wifi-nas-mount
 Hook Wi-Fi.
 .TP
-.I /etc/systemd/system/nfs-network-check.{service,timer}
+.I /etc/systemd/system/nas-network-check.{service,timer}
 Exécution périodique de la politique, toutes les 15 minutes.
 .TP
 .I /usr/local/share/polkit-1/actions/org.jotenakis.smartmount.policy

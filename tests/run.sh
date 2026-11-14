@@ -504,33 +504,33 @@ check "mount + eth : montage" oui "$(called 'mount -t nfs')"
 # `down` — un démontage unilatéral défaisait le montage justifié par l'autre lien.
 new_case hook_eth_up
 stub_main
-rc="$(run_hook 98-eth-nfs-mac eth0 up)"
+rc="$(run_hook 98-eth-nas-mac eth0 up)"
 check "hook eth up : code 0" 0 "${rc}"
 check "hook eth up : apply" oui "$(called '^MAIN apply')"
 
 new_case hook_eth_down
 stub_main
-rc="$(run_hook 98-eth-nfs-mac eth0 down)"
+rc="$(run_hook 98-eth-nas-mac eth0 down)"
 check "hook eth down : code 0" 0 "${rc}"
 check "hook eth down : apply" oui "$(called '^MAIN apply')"
 check "hook eth down : aucun démontage direct" oui "$(not_called '^MAIN unmount')"
 
 new_case hook_wifi_down
 stub_main
-rc="$(run_hook 99-wifi-nfs-mount wlan0 down)"
+rc="$(run_hook 99-wifi-nas-mount wlan0 down)"
 check "hook wifi down : code 0" 0 "${rc}"
 check "hook wifi down : apply" oui "$(called '^MAIN apply')"
 check "hook wifi down : aucun démontage direct" oui "$(not_called '^MAIN unmount')"
 
 new_case hook_wifi_dhcp
 stub_main
-rc="$(run_hook 99-wifi-nfs-mount wlan0 dhcp4-change)"
+rc="$(run_hook 99-wifi-nas-mount wlan0 dhcp4-change)"
 check "hook wifi dhcp4-change : code 0" 0 "${rc}"
 check "hook wifi dhcp4-change : apply" oui "$(called '^MAIN apply')"
 
 new_case hook_other_device
 stub_main
-rc="$(run_hook 98-eth-nfs-mac eth1 up)"
+rc="$(run_hook 98-eth-nas-mac eth1 up)"
 check "hook autre interface : code 0" 0 "${rc}"
 check "hook autre interface : aucun appel" oui "$(not_called '^MAIN')"
 

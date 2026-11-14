@@ -1,6 +1,6 @@
 pkgbase = smart-mount
 	pkgdesc = Mount NFS and CIFS shares only when the right network and the right server are present, and keep them healthy
-	pkgver = 1.24
+	pkgver = 1.25
 	pkgrel = 1
 	url = https://github.com/jotenakis2/smart-mount
 	install = smart-mount.install
@@ -19,7 +19,7 @@ pkgbase = smart-mount
 	optdepends = iw: reliable SSID detection (falls back to nmcli)
 	provides = smart-mount
 	conflicts = smart-mount-git
-	source = https://github.com/jotenakis2/smart-mount/archive/v1.24/smart-mount-1.24.tar.gz
+	source = https://github.com/jotenakis2/smart-mount/archive/v1.25/smart-mount-1.25.tar.gz
 	sha256sums = SKIP
 
 pkgname = smart-mount

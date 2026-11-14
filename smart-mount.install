@@ -1,8 +1,18 @@
 post_install() {
     # Contrairement à `make install`, pacman n'active rien : sans ceci le timer
     # reste inerte et rien ne monte tant que le hook réseau n'a pas parlé.
+    # 1.25 : unités et hooks renommés (nfs -> nas). pacman retire les fichiers
+    # de l'ancien paquet, mais pas les liens d'activation du timer ni une copie
+    # posée hors paquet : on nettoie explicitement.
+    systemctl disable --now nfs-network-check.timer >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/nfs-network-check.service \
+          /etc/systemd/system/nfs-network-check.timer \
+          /etc/systemd/system/timers.target.wants/nfs-network-check.timer \
+          /etc/systemd/system/multi-user.target.wants/nfs-network-check.timer \
+          /etc/NetworkManager/dispatcher.d/98-eth-nfs-mac \
+          /etc/NetworkManager/dispatcher.d/99-wifi-nfs-mount
     systemctl daemon-reload >/dev/null 2>&1 || true
-    systemctl enable --now nfs-network-check.timer >/dev/null 2>&1 || true
+    systemctl enable --now nas-network-check.timer >/dev/null 2>&1 || true
 
     cat <<'EOF'
 smart-mount est installé, mais aucun partage n'est configuré.
@@ -36,7 +46,7 @@ post_upgrade() {
 }
 
 pre_remove() {
-    systemctl disable --now nfs-network-check.timer 2>/dev/null || true
+    systemctl disable --now nas-network-check.timer nfs-network-check.timer 2>/dev/null || true
     cat <<'EOF'
 Le fichier /etc/smart-mount/config et les fichiers d'identifiants CIFS ne
 appartiennent pas au paquet : ils sont laissés en place. Supprimez-les à la main

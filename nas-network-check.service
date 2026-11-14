@@ -1,5 +1,5 @@
 [Unit]
-Description=Vérification périodique du montage NFS selon le réseau - smartmount
+Description=Vérification périodique des partages NFS/CIFS selon le réseau - smartmount
 After=network-online.target
 Wants=network-online.target
 ConditionPathExists=/etc/smart-mount/config
