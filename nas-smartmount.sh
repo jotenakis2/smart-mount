@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.25
+VER=1.26
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -64,8 +64,8 @@ msg() {
             bad_record)           text='Enregistrement de partage invalide : %s' ;;
             bad_type)             text='[%s] type de partage inconnu : %s' ;;
             no_mac)               text='[%s] MAC cible absente : refus de monter' ;;
-            mount_expected_wifi)  text='[%s] Wi-Fi ciblé (%s) et %s confirmé : montage attendu' ;;
-            mount_expected_eth)   text='[%s] %s confirmé sur Ethernet : montage attendu' ;;
+            mount_expected_wifi)  text='[%s] Wi-Fi ciblé (%s) et %s confirmé : montage %s attendu' ;;
+            mount_expected_eth)   text='[%s] %s confirmé sur Ethernet : montage %s attendu' ;;
             wifi_unreadable)      text='[%s] SSID illisible et %s non confirmé : aucune action' ;;
             no_link)              text='[%s] aucun lien confirmé, pas de montage' ;;
             wifi_not_confirmed)   text='[%s] Wi-Fi ciblé mais %s non confirmé : montage non attendu' ;;
@@ -159,8 +159,8 @@ msg() {
             bad_record)           text='Invalid share record: %s' ;;
             bad_type)             text='[%s] unknown share type: %s' ;;
             no_mac)               text='[%s] no target MAC: refusing to mount' ;;
-            mount_expected_wifi)  text='[%s] targeted Wi-Fi (%s) and %s confirmed: mount expected' ;;
-            mount_expected_eth)   text='[%s] %s confirmed on Ethernet: mount expected' ;;
+            mount_expected_wifi)  text='[%s] targeted Wi-Fi (%s) and %s confirmed: %s mount expected' ;;
+            mount_expected_eth)   text='[%s] %s confirmed on Ethernet: %s mount expected' ;;
             wifi_unreadable)      text='[%s] SSID unreadable and %s not confirmed: no action' ;;
             no_link)              text='[%s] no link confirmed, not mounting' ;;
             wifi_not_confirmed)   text='[%s] targeted Wi-Fi but %s not confirmed: mount not expected' ;;
@@ -700,6 +700,15 @@ net_matches() { # net_matches <réseaux> <ssid>
 # Politique d'un partage : chaque lien doit être à la fois le bon réseau ET le bon
 # serveur. Il suffit que l'un des deux le soit pour monter ; il faut que les deux
 # soient écartés sans ambiguïté pour démonter. En mode `mount` on ne démonte jamais.
+# Libellé du protocole pour les messages : cifs se dit SMB.
+proto_label() {
+    case "${1:-}" in
+        nfs)  printf 'NFS' ;;
+        cifs) printf 'SMB' ;;
+        *)    printf '%s' "${1:-}" ;;
+    esac
+}
+
 apply_share() { # apply_share <record> <ssid> <état wifi> <apply|mount>
     local record="${1:-}"
     local ssid="${2:-}"
@@ -734,13 +743,13 @@ apply_share() { # apply_share <record> <ssid> <état wifi> <apply|mount>
 
     if [[ ${state} -eq 0 ]] && net_matches "${nets}" "${ssid}" \
         && neighbor_is_target "${WIFI_IFACE:-}" "${server}" "${mac}"; then
-        log_info "$(msg mount_expected_wifi "${mount}" "${ssid}" "${server}")"
+        log_info "$(msg mount_expected_wifi "${mount}" "${ssid}" "${server}" "$(proto_label "${type}")")"
         mount_one "${type}" "${server}" "${path}" "${mount}" "${opts}" "${creds}"
         return
     fi
 
     if neighbor_is_target "${LAN_IFACE:-}" "${server}" "${mac}"; then
-        log_info "$(msg mount_expected_eth "${mount}" "${server}")"
+        log_info "$(msg mount_expected_eth "${mount}" "${server}" "$(proto_label "${type}")")"
         mount_one "${type}" "${server}" "${path}" "${mount}" "${opts}" "${creds}"
         return
     fi

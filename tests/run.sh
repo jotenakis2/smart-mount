@@ -933,7 +933,17 @@ set_neighbor aa:bb:cc:dd:ee:ff
 rc="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
         SMARTMOUNT_DEPS="" LC_ALL=fr_FR.UTF-8 bash "${SCRIPT}" apply >/dev/null 2>&1; echo $? )"
 check "locale fr : code 0" 0 "${rc}"
-check "locale fr : journal en français" oui "$(called 'montage attendu')"
+check "locale fr : journal en français" oui "$(called 'montage NFS attendu')"
+
+new_case lang_french_log_smb
+# Le protocole est nommé dans le journal : cifs se dit SMB, jamais « cifs ».
+CASE_SHARES=("cifs|192.168.1.30|public|${CASE_DIR}/mnt2|vers=3.0|aa:bb:cc:dd:ee:ff|")
+write_config
+set_neighbor aa:bb:cc:dd:ee:ff
+rc="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" \
+        SMARTMOUNT_DEPS="" LC_ALL=fr_FR.UTF-8 bash "${SCRIPT}" apply >/dev/null 2>&1; echo $? )"
+check "locale fr, cifs : code 0" 0 "${rc}"
+check "locale fr, cifs : protocole nommé SMB" oui "$(called 'montage SMB attendu')"
 
 new_case lang_french_show
 set_mount_table "${CASE_DIR}/mnt 192.168.1.10:/share nfs4 rw,rsize=1"
