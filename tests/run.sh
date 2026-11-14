@@ -1223,6 +1223,86 @@ new_case actimeo_present
 out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_actimeo "guest,actimeo=30"' _ "${SCRIPT}" 2>/dev/null )"
 check "actimeo : valeur existante respectée" "guest,actimeo=30" "${out}"
 
+new_case defer_counter
+out="$( bash -c 'SMARTMOUNT_STATE_DIR="$2"; export SMARTMOUNT_STATE_DIR; source "$1" >/dev/null 2>&1; defer_count 192.168.1.10 1; defer_count 192.168.1.10 1' _ "${SCRIPT}" "${CASE_DIR}/state" 2>/dev/null | tail -1 )"
+check "compteur : deux reports" "2" "${out}"
+out="$( bash -c 'SMARTMOUNT_STATE_DIR="$2"; export SMARTMOUNT_STATE_DIR; source "$1" >/dev/null 2>&1; defer_count 192.168.1.10 1; defer_count 192.168.1.10 0; ls "$2" 2>/dev/null | wc -l' _ "${SCRIPT}" "${CASE_DIR}/state" 2>/dev/null | tail -1 )"
+check "compteur : remis à zéro" "0" "${out}"
+
+# Plafond atteint : on cesse de reporter, sinon un NAS qui ne revient jamais
+# laisserait le partage démonté indéfiniment.
+new_case session_stuck_escalates
+stub mountpoint 'printf "mountpoint\n" >> "$CALLS"; exit 32'
+stub ip 'printf "ip %s\n" "$*" >> "$CALLS"; printf "192.168.1.10 dev wlan0 lladdr aa:bb:cc:dd:ee:ff REACHABLE\n"'
+printf 'NV SERVER   PORT DEV          FSID                              FSC\nv4 c0a8010a  801 0:94 91e4:890b no \n' > "${CASE_DIR}/volumes"
+mkdir -p "${CASE_DIR}/state"
+printf '3\n' > "${CASE_DIR}/state/defer-192_168_1_10"
+rc="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" SMARTMOUNT_DEPS="" \
+        PROC_NFS_VOLUMES="${CASE_DIR}/volumes" SMARTMOUNT_STATE_DIR="${CASE_DIR}/state" \
+        bash "${SCRIPT}" apply >/dev/null 2>&1; echo $? )"
+check "plafond : code 0" 0 "${rc}"
+check "plafond : montage tenté malgré la session" oui "$(called '^mount -t nfs')"
+check "plafond : escalade journalisée" oui "$(called 'still stuck after')"
+
+# Un démontage paresseux sur un montage tenu par un écrivain bloqué : le journal
+# doit dire que le superbloc survit, pas seulement « détaché ».
+new_case lazy_with_holders
+stub mountpoint 'printf "mountpoint\n" >> "$CALLS"; exit 0'
+# le vrai fuser écrit les PID sur stdout ; le stub doit en faire autant
+stub fuser 'printf "fuser %s\n" "$*" >> "$CALLS"; printf "/mnt: 1234c 5678r\n"'
+stub umount 'printf "umount %s\n" "$*" >> "$CALLS"; case "$*" in *-l*) exit 0 ;; *) exit 1 ;; esac'
+rc="$(run_script unmount)"
+check "tenants : code 0" 0 "${rc}"
+check "tenants : démontage paresseux" oui "$(called '^umount .*-l')"
+check "tenants : superbloc signalé" oui "$(called 'still hold it')"
+
+# --- sessions noyau et options NFS -----------------------------------------
+
+new_case hard_opt
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_hard_opt ""' _ "${SCRIPT}" 2>/dev/null )"
+check "hard : ajouté sur une liste vide" "hard" "${out}"
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_hard_opt "nodev,noexec"' _ "${SCRIPT}" 2>/dev/null )"
+check "hard : ajouté après les autres options" "nodev,noexec,hard" "${out}"
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_hard_opt "hard,nodev"' _ "${SCRIPT}" 2>/dev/null )"
+check "hard : déjà présent, inchangé" "hard,nodev" "${out}"
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ensure_hard_opt "soft,timeo=100"' _ "${SCRIPT}" 2>/dev/null )"
+check "hard : soft explicite respecté" "soft,timeo=100" "${out}"
+
+new_case ip_hex
+out="$( bash -c 'source "$1" >/dev/null 2>&1; ip_to_hex 192.168.50.85' _ "${SCRIPT}" 2>/dev/null )"
+check "ip_to_hex : 192.168.50.85" "c0a83255" "${out}"
+
+new_case session_nfs_alive
+printf 'NV SERVER   PORT DEV          FSID                              FSC\nv4 c0a83255  801 0:94 91e4:890b no \n' > "${CASE_DIR}/volumes"
+PROC="${CASE_DIR}/volumes"
+out="$( bash -c 'source "$1" >/dev/null 2>&1; PROC_NFS_VOLUMES="$2"; kernel_session_active nfs 192.168.50.85; echo $?' _ "${SCRIPT}" "${PROC}" 2>/dev/null | tail -1 )"
+check "session nfs : serveur présent" "0" "${out}"
+out="$( bash -c 'source "$1" >/dev/null 2>&1; PROC_NFS_VOLUMES="$2"; kernel_session_active nfs 192.168.50.99; echo $?' _ "${SCRIPT}" "${PROC}" 2>/dev/null | tail -1 )"
+check "session nfs : autre serveur" "1" "${out}"
+
+new_case session_cifs_alive
+printf '\tSessions: \n\t1) Address: 192.168.50.85 Uses: 1 Capability: 0x30006f\n' > "${CASE_DIR}/debugdata"
+out="$( bash -c 'source "$1" >/dev/null 2>&1; PROC_CIFS_DEBUG="$2"; kernel_session_active cifs 192.168.50.85; echo $?' _ "${SCRIPT}" "${CASE_DIR}/debugdata" 2>/dev/null | tail -1 )"
+check "session cifs : serveur présent" "0" "${out}"
+out="$( bash -c 'source "$1" >/dev/null 2>&1; PROC_CIFS_DEBUG="$2"; kernel_session_active cifs 192.168.50.99; echo $?' _ "${SCRIPT}" "${CASE_DIR}/debugdata" 2>/dev/null | tail -1 )"
+check "session cifs : autre serveur" "1" "${out}"
+
+# Un partage absent mais une session encore vivante : on reporte le montage
+# au lieu d ouvrir un second client sur le même export.
+new_case session_defers_mount
+stub mountpoint 'printf "mountpoint\n" >> "$CALLS"; exit 32'
+# la MAC doit être lue, sinon apply conclut « montage non attendu » et n'entre
+# jamais dans mount_one — le cas passerait sans rien prouver.
+stub ip 'printf "ip %s\n" "$*" >> "$CALLS"; printf "192.168.50.85 dev wlan0 lladdr aa:bb:cc:dd:ee:ff REACHABLE\n"'
+# c0a8010a = 192.168.1.10, le serveur du cas par defaut
+printf 'NV SERVER   PORT DEV          FSID                              FSC\nv4 c0a8010a  801 0:94 91e4:890b no \n' > "${CASE_DIR}/volumes"
+rc="$( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" SMARTMOUNT_DEPS="" \
+        PROC_NFS_VOLUMES="${CASE_DIR}/volumes" SMARTMOUNT_STATE_DIR="${CASE_DIR}/state" \
+        bash "${SCRIPT}" apply >/dev/null 2>&1; echo $? )"
+check "session vivante : code 0" 0 "${rc}"
+check "session vivante : aucun montage tenté" oui "$(not_called '^mount ')"
+check "session vivante : journalisé" oui "$(called 'mount deferred')"
+
 # ---------------------------------------------------------------- summary
 
 printf '\n%d test(s) ok, %d échec(s)\n' "${PASS}" "${FAIL}"

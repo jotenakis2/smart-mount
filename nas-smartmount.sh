@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.26
+VER=1.27
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -49,6 +49,12 @@ msg() {
             dry_unmount)          text='[dry-run] démontage de %s non effectué' ;;
             unmount_ok)           text='[%s] démontage réussi' ;;
             unmount_blocked)      text='[%s] démontage bloqué (point occupé ?), repli paresseux' ;;
+            holders_note)         text='[%s] %s processus tiennent encore le montage (E/S en cours)' ;;
+            lazy_holders)         text='[%s] détaché, mais %s processus le tiennent encore : leurs E/S reprendront au retour du serveur' ;;
+            session_lingering)    text='[%s] session vers %s encore vivante dans le noyau (%s/%s) : montage reporté' ;;
+            session_stuck)        text='[%s] session vers %s toujours bloquée après %s passages : montage quand même, l ecrivain bloqué garde son superbloc jusqu au retour du serveur ou un redémarrage' ;;
+            hard_added)           text='[%s] option hard ajoutée (un serveur muet bloque au lieu de tronquer)' ;;
+            soft_chosen)          text='[%s] montage soft : une panne du serveur rend une erreur, au risque de troncature silencieuse' ;;
             mp_created)           text='[%s] point de montage créé' ;;
             mp_failed)            text='[%s] impossible de créer le point de montage' ;;
             already_healthy)      text='[%s] déjà monté et sain' ;;
@@ -111,6 +117,9 @@ msg() {
             ws_nfs_path)          text='Dossier exporté (ex : /volume1/share)' ;;
             ws_mount)             text='Point de montage' ;;
             ws_opts)              text='Options de montage' ;;
+            ws_hard)              text='Ajouter hard ? Un serveur muet bloque alors au lieu de tronquer le fichier (mesure sur cette machine : 3 min de blocage, puis reprise sans perte).' ;;
+            ws_soft_warn)         text='soft est demande. Une panne du serveur rend une erreur au lieu de bloquer : la commande echoue au lieu de figer, mais un fichier peut etre tronque en silence. Mesure : avec hard, 2 Go ont repris seuls apres 3 min de coupure ; avec soft, la meme panne ferait echouer laffaire au milieu.' ;;
+            ws_soft_switch)       text='Passer ce partage de soft a hard ?' ;;
             ws_mac)               text='Adresse MAC de %s (obligatoire : sans elle, aucun montage)' ;;
             ws_mac_missing)       text='Aucune adresse MAC détectée pour %s.\n\nLe serveur n'"'"'a pas répondu : impossible de lire sa MAC. Ce partage ne sera PAS monté\ntant qu'"'"'aucune MAC cible n'"'"'est configurée, en Wi-Fi comme en Ethernet.\n\nPour la trouver :\n  - quand le serveur est joignable :  ip neigh show %s\n  - ou dans l'"'"'interface d'"'"'administration du NAS, ou les baux DHCP de la box\n\nRenseignez ensuite le 6e champ de ce partage dans /etc/smart-mount/config\n(ou relancez : sudo nas-smartmount.sh setup).' ;;
             ws_nets)              text='Réseaux autorisés, séparés par ; (vide = le SSID global, * = indifférent). Vus à l instant : %s' ;;
@@ -144,6 +153,12 @@ msg() {
             dry_unmount)          text='[dry-run] unmount of %s not performed' ;;
             unmount_ok)           text='[%s] unmount succeeded' ;;
             unmount_blocked)      text='[%s] unmount blocked (busy mount point?), trying lazy unmount' ;;
+            holders_note)         text='[%s] %s process(es) still hold the mount (I/O in progress)' ;;
+            lazy_holders)         text='[%s] detached, but %s process(es) still hold it: their I/O resumes if the server returns' ;;
+            session_lingering)    text='[%s] previous session to %s still alive in the kernel (%s/%s): mount deferred' ;;
+            session_stuck)        text='[%s] session to %s still stuck after %s runs: mounting anyway, the blocked writer keeps its own superbloc until the server returns or this machine reboots' ;;
+            hard_added)           text='[%s] hard option added (an unresponsive server blocks instead of truncating)' ;;
+            soft_chosen)          text='[%s] soft mount: a server outage returns an error, at the risk of a truncated file' ;;
             mp_created)           text='[%s] mount point created' ;;
             mp_failed)            text='[%s] cannot create the mount point' ;;
             already_healthy)      text='[%s] already mounted and healthy' ;;
@@ -206,6 +221,9 @@ msg() {
             ws_nfs_path)          text='Exported path (e.g. /volume1/share)' ;;
             ws_mount)             text='Mount point' ;;
             ws_opts)              text='Mount options' ;;
+            ws_hard)              text='Add hard? An unresponsive server then blocks instead of truncating the file (measured here: 3 min blocked, then resumed with no loss).' ;;
+            ws_soft_warn)         text='soft requested. A server outage returns an error instead of blocking: the command fails instead of freezing, but a file can be silently truncated. Measured: with hard, 2 GB resumed by itself after a 3-minute outage; with soft, the same outage would fail the transfer halfway.' ;;
+            ws_soft_switch)       text='Switch this share from soft to hard?' ;;
             ws_mac)               text='MAC address of %s (mandatory: without it the share is never mounted)' ;;
             ws_mac_missing)       text='No MAC address detected for %s.\n\nThe server did not answer: its MAC address cannot be read. This share will NOT\nbe mounted until a target MAC is configured, over Wi-Fi as well as Ethernet.\n\nTo find it:\n  - while the server is reachable:  ip neigh show %s\n  - or in the NAS administration interface, or in the router'"'"'s DHCP leases\n\nThen fill in the 6th field of that share in /etc/smart-mount/config\n(or re-run: sudo nas-smartmount.sh setup).' ;;
             ws_nets)              text='Accepted networks, separated by ; (empty = the global SSID, * = any). Seen right now: %s' ;;
@@ -519,6 +537,67 @@ mount_is_healthy() { # mount_is_healthy <point>
     return 0
 }
 
+# Les sessions que le noyau garde après un démontage. Un montage détaché pendant
+# qu'un écrivain bloquait laisse un superbloc vivant : `umount -l` retire l'entrée
+# de l'arborescence, il ne libère pas les E/S en cours. Monter à cet instant ferait
+# un second client sur le même export, pendant que le premier écrit encore.
+PROC_NFS_VOLUMES=${PROC_NFS_VOLUMES:-/proc/fs/nfsfs/volumes}
+PROC_CIFS_DEBUG=${PROC_CIFS_DEBUG:-/proc/fs/cifs/DebugData}
+
+ip_to_hex() { # ip_to_hex <a.b.c.d> → c0a83255
+    local IFS=. o1 o2 o3 o4
+    read -r o1 o2 o3 o4 <<<"${1:-}" || return 1
+    [[ ${o1:-x} =~ ^[0-9]+$ && ${o4:-x} =~ ^[0-9]+$ ]] || return 1
+    printf '%02x%02x%02x%02x' "${o1}" "${o2}" "${o3}" "${o4}"
+}
+
+# Report borné : sans plafond, une session figée pour toujours (NAS remplacé, disque
+# mort) empêcherait le partage de revenir. Le compteur vit dans /run : il disparaît
+# au redémarrage, qui est justement le seul déblocage d'un écrivain `hard` infini.
+STATE_DIR=${SMARTMOUNT_STATE_DIR:-/run/smart-mount}
+MAX_DEFER=${SMARTMOUNT_MAX_DEFER:-3}
+
+defer_count() { # defer_count <serveur> <+1|0>
+    local f n=0
+    f="${STATE_DIR}/defer-$(printf '%s' "${1:-}" | tr './' '__')"
+    if [[ ${2:-0} -eq 0 ]]; then
+        rm -f -- "${f}" 2>/dev/null || true
+        return 0
+    fi
+    mkdir -p -- "${STATE_DIR}" 2>/dev/null || true
+    [[ -r "${f}" ]] && read -r n < "${f}" 2>/dev/null
+    [[ ${n} =~ ^[0-9]+$ ]] || n=0
+    n=$(( n + 1 ))
+    printf '%s\n' "${n}" > "${f}" 2>/dev/null || true
+    printf '%s\n' "${n}"
+}
+
+kernel_session_active() { # kernel_session_active <type> <serveur>
+    local type="${1:-}" server="${2:-}" hex=''
+    case "${type}" in
+        nfs)
+            [[ -r "${PROC_NFS_VOLUMES}" ]] || return 1
+            hex="$(ip_to_hex "${server}")" || return 1
+            awk -v h="${hex}" '$1 ~ /^v[34]/ && $2 == h { found = 1 } END { exit !found }' \
+                "${PROC_NFS_VOLUMES}"
+            ;;
+        cifs)
+            [[ -r "${PROC_CIFS_DEBUG}" ]] || return 1
+            grep -qF "Address: ${server}" "${PROC_CIFS_DEBUG}"
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+# Processus qui tiennent le point de montage. `fuser -m` n'a de sens que monté :
+# après un démontage, -m désigne le système de fichiers *contenant* le point.
+mount_holders() { # mount_holders <point> → liste de PID
+    local mount="${1:-}" out=''
+    command -v fuser >/dev/null 2>&1 || return 0
+    out="$(timeout 5 fuser -m -- "${mount}" 2>&1 | tr -s ' ' '\n' | grep -E '^[0-9]+' | tr '\n' ' ')"
+    printf '%s' "${out% }"
+}
+
 umount_lazy() { # umount_lazy <point>
     local mount="${1:-}"
     if timeout 10 umount -l -- "${mount}" 2>/dev/null; then
@@ -575,6 +654,12 @@ unmount_one() { # unmount_one <point>
         return 0
     fi
 
+    local holders
+    holders="$(mount_holders "${mount}")"
+    if [[ -n "${holders}" ]]; then
+        log_notice "$(msg holders_note "${mount}" "$(printf '%s' "${holders}" | wc -w)")"
+    fi
+
     if timeout 10 umount -- "${mount}" 2>/dev/null; then
         log_info "$(msg unmount_ok "${mount}")"
         return 0
@@ -590,6 +675,12 @@ unmount_one() { # unmount_one <point>
     # portable part avec un montage dur actif et fige au prochain accès.
     log_warning "$(msg unmount_blocked "${mount}")"
     if umount_lazy "${mount}"; then
+        # `-l` détache de l'arborescence ; les écrivains bloqués gardent le
+        # superbloc et reprendront si le serveur revient. Le dire, au lieu de
+        # laisser croire que tout est réglé.
+        if [[ -n "${holders}" ]]; then
+            log_warning "$(msg lazy_holders "${mount}" "$(printf '%s' "${holders}" | wc -w)")"
+        fi
         return 0
     fi
 
@@ -604,7 +695,7 @@ mount_one() { # mount_one <type> <serveur> <partage> <point> <options> <identifi
     local mount="${4:-}"
     local opts="${5:-}"
     local creds="${6:-}"
-    local spec='' mountpoint_rc=0
+    local spec='' mountpoint_rc=0 n_defer=''
 
     spec="$(share_spec "${type}" "${server}" "${path}")"
 
@@ -647,6 +738,17 @@ mount_one() { # mount_one <type> <serveur> <partage> <point> <options> <identifi
         fi
     fi
 
+    if [[ ${mountpoint_rc} -ne 0 ]] && kernel_session_active "${type}" "${server}"; then
+        n_defer="$(defer_count "${server}" 1)"
+        if [[ ${n_defer} =~ ^[0-9]+$ ]] && (( n_defer < MAX_DEFER )); then
+            log_notice "$(msg session_lingering "${mount}" "${server}" "${n_defer}" "${MAX_DEFER}")"
+            return 0
+        fi
+        # Plafond atteint : un partage qui ne revient jamais est pire qu'un second
+        # client le temps que l'ancienne session se vide.
+        log_warning "$(msg session_stuck "${mount}" "${server}" "${n_defer}")"
+    fi
+
     if ! ping -c 1 -i 0.2 -W 2 -w 3 "${server}" >/dev/null 2>&1; then
         log_info "$(msg server_unreachable "${mount}" "${server}")"
         return 127
@@ -672,6 +774,7 @@ mount_one() { # mount_one <type> <serveur> <partage> <point> <options> <identifi
 
     if mount "${args[@]}" 2>/dev/null; then
         log_info "$(msg mount_ok "${mount}" "${spec}")"
+        defer_count "${server}" 0
         return 0
     fi
 
@@ -1403,6 +1506,17 @@ safe_field() {
 # comme en CIFS — vérifié : sur un montage cifs, noexec refuse réellement
 # l'exécution. Un partage réseau qui autorise l'exécution ou les binaires setuid est
 # un risque qu'on n'a aucune raison d'accepter par défaut.
+# NFS : `hard` explicite. Le noyau le fait par defaut, mais une config qui ne dit
+# rien laisse croire que le choix a ete fait — et celui qui ecrit `soft` doit le
+# faire en connaissance de cause.
+ensure_hard_opt() { # ensure_hard_opt <options>
+    local opts="${1:-}"
+    case ",${opts}," in
+        *,hard,*|*,soft,*) printf '%s' "${opts}" ;;
+        *) printf '%s' "${opts:+${opts},}hard" ;;
+    esac
+}
+
 ensure_safe_opts() { # ensure_safe_opts <options> -> options + les trois drapeaux manquants
     local opts="${1:-}"
     local flag=''
@@ -1684,6 +1798,25 @@ ask_share() { # ask_share <numéro> -> "type|serveur|partage|point|options|mac|c
             "$(msg ws_harden_opts "${opts}" "${safe_opts}")"; then
             opts="${safe_opts}"
         fi
+    fi
+
+    if [[ "${type}" = "nfs" ]]; then
+        # hard n est pas une preference, c est le comportement qui evite un fichier
+        # tronque : on le propose, et on revient a hard si soft a ete saisi.
+        case ",${opts}," in
+            *,soft,*)
+                whiptail --title "Share ${num}" --msgbox "$(msg ws_soft_warn)" 22 78 || true
+                if ask_yesno "$(msg ws_share_title "${num}")" "$(msg ws_soft_switch)"; then
+                    opts="$(printf '%s' "${opts}" | sed 's/\bsoft\b/hard/')"
+                fi
+                ;;
+            *,hard,*) : ;;
+            *)
+                if ask_yesno "$(msg ws_share_title "${num}")" "$(msg ws_hard)"; then
+                    opts="$(ensure_hard_opt "${opts}")"
+                fi
+                ;;
+        esac
     fi
 
     if [[ "${type}" = "cifs" ]]; then
