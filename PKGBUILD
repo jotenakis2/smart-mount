@@ -8,7 +8,7 @@ arch=('any')
 url="https://github.com/jotenakis2/smart-mount"
 license=('MIT')
 depends=('bash' 'coreutils' 'util-linux' 'iproute2' 'iputils' 'nfs-utils'
-         'networkmanager' 'systemd' 'libnewt')
+         'networkmanager' 'systemd' 'libnewt' 'psmisc')
 optdepends=('cifs-utils: share of type cifs'
             'iw: reliable SSID detection (falls back to nmcli)')
 provides=('smart-mount')

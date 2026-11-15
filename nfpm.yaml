@@ -47,6 +47,7 @@ overrides:
       - iproute2
       - iputils-ping
       - nfs-common
+      - psmisc
       - network-manager
       - systemd
       - whiptail
@@ -61,6 +62,7 @@ overrides:
       - iproute2
       - iputils
       - nfs-utils
+      - psmisc
       - NetworkManager
       - systemd
       - newt
