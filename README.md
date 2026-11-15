@@ -125,6 +125,26 @@ git clone https://github.com/jotenakis2/smart-mount && cd smart-mount && sudo ma
 The wizard asks how many shares you want, their type (NFS or CIFS), then the details of
 each one, and finally the Wi-Fi SSID and the two interface names.
 
+### Signed packages
+
+The binary package built by CI (`smart-mount-<version>-1-any.pkg.tar.zst`) is signed
+with the packaging key; its fingerprint is
+
+    8284 B7E6 5BF5 E7C2 A811  25ED 1768 F83F EA05 5EF1
+
+The public half is in this repository as `packaging-key.asc`. To trust it before
+installing a downloaded package:
+
+```
+sudo pacman-key --add packaging-key.asc
+sudo pacman-key --lsign-key 8284B7E65BF5E7C2A81125ED1768F83FEA055EF1
+gpg --verify smart-mount-<version>-1-any.pkg.tar.zst.sig smart-mount-<version>-1-any.pkg.tar.zst
+sudo pacman -U smart-mount-<version>-1-any.pkg.tar.zst
+```
+
+`--lsign-key` is a local trust decision, not a signature on the key: it tells your
+keyring that this key may sign packages. Nothing about it reaches a keyserver.
+
 ## Configuration
 
 `/etc/smart-mount/config`, sourced by the script (root only, mode 0600). One record per

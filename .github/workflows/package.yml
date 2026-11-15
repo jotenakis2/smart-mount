@@ -1,6 +1,6 @@
 name: package
 
-# Construit le paquet binaire et l'attache à la release publiée.
+# Construit le paquet binaire, le signe et l'attache à la release publiée.
 # Le paquet est arch=('any') : du bash et des pages de man, rien n'est compilé, donc
 # un seul artefact vaut pour toutes les architectures. Ce workflow ne publie rien sur
 # l'AUR (qui attend un PKGBUILD, pas un binaire).
@@ -22,7 +22,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Dépendances de construction
-        run: pacman -Syu --noconfirm --needed base-devel git github-cli
+        run: pacman -Syu --noconfirm --needed base-devel git github-cli gnupg shellcheck python
 
       - uses: actions/checkout@v4
         with:
@@ -33,47 +33,85 @@ jobs:
       - name: Contrôles (syntaxe, style, tests)
         run: make check
 
-      - name: Construction avec makepkg
+      # La clé arrive par secrets. Elle sert uniquement à signer les paquets :
+      # sa partie publique est dans le dépôt (packaging-key.asc), c'est elle que
+      # les utilisateurs importent dans leur trousseau pacman.
+      - name: Préparation de la clé de signature
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -e
+          if [ -z "${GPG_PRIVATE_KEY}" ]; then
+            echo "secret GPG_PRIVATE_KEY absent : impossible de signer le paquet" >&2
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "${GPG_PRIVATE_KEY}" > /tmp/signing-key.asc
+          printf '%s' "${GPG_PASSPHRASE}" > /tmp/signing-pass
+          chmod 600 /tmp/signing-key.asc /tmp/signing-pass
+          # la clé publique du dépôt doit correspondre à la clé privée fournie
+          gpg --batch --import /tmp/signing-key.asc 2>/dev/null
+          expected=$(gpg --batch --show-keys --with-colons packaging-key.asc \
+            | awk -F: '/^fpr/ {print $10; exit}')
+          actual=$(gpg --batch --with-colons --list-secret-keys | awk -F: '/^fpr/ {print $10; exit}')
+          if [ "${expected}" != "${actual}" ]; then
+            echo "packaging-key.asc (${expected}) != clé fournie (${actual})" >&2
+            exit 1
+          fi
+          echo "clé de signature : ${actual}"
+
+      - name: Construction et signature
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
         run: |
           set -e
           # makepkg refuse de tourner en root : l'arbre est donné à un utilisateur
-          # de construction, qui récupère l'archive du tag via le PKGBUILD.
+          # de construction, qui importe la clé dans SON trousseau.
           useradd -m builder
           chown -R builder .
-          # --nodeps : les dépendances du paquet sont des dépendances d'EXÉCUTION
-          # (NetworkManager, systemd, nfs-utils…), inutiles pour produire des
-          # fichiers dans un conteneur.
-          su builder -c 'makepkg -f --nodeps'
+          install -o builder -g builder -m 600 /tmp/signing-key.asc /home/builder/signing-key.asc
+          install -o builder -g builder -m 600 /tmp/signing-pass /home/builder/signing-pass
+          runuser -u builder -- bash .github/scripts/build-signed.sh "${GPG_KEY_ID}"
+          rm -f /tmp/signing-key.asc /tmp/signing-pass
 
       - name: Contrôle du paquet produit
         run: |
           set -e
-          pkg=$(ls -1 smart-mount-*.pkg.tar.* | head -1)
+          pkg=$(ls -1 smart-mount-*.pkg.tar.* | grep -v '\.sig$' | head -1)
+          sig="${pkg}.sig"
           echo "paquet : $pkg"
           pkgver=$(sed -n 's/^pkgver=//p' PKGBUILD)
           echo "version attendue : $pkgver"
 
-          bsdtar tf "$pkg" | sort > /tmp/contents
+          [ -f "${sig}" ] || { echo "pas de signature : ${sig}" >&2; exit 1; }
+          # la signature doit vérifier avec la clé publique du dépôt, seule clé
+          # qu'un utilisateur aura importée
+          gpg --batch --import packaging-key.asc 2>/dev/null
+          gpg --batch --verify "${sig}" "${pkg}"
+
+          bsdtar tf "${pkg}" | sort > /tmp/contents
           for f in etc/NetworkManager/dispatcher.d/98-eth-nas-mac \
                    etc/NetworkManager/dispatcher.d/99-wifi-nas-mount \
                    etc/systemd/system/nas-network-check.service \
                    etc/systemd/system/nas-network-check.timer \
                    usr/bin/nas-smartmount.sh \
-                   usr/share/man/man8/nas-smartmount.8 \
-                   usr/share/man/fr/man8/nas-smartmount.8; do
+                   usr/share/man/man8/nas-smartmount.8.gz \
+                   usr/share/man/fr/man8/nas-smartmount.8.gz; do
             grep -qx "$f" /tmp/contents || { echo "manquant dans le paquet : $f" >&2; exit 1; }
           done
 
           # Le binaire et les deux pages de man doivent annoncer la version du
           # PKGBUILD : elles étaient restées à 1.25 alors que le code était en 1.28.
-          bsdtar xOf "$pkg" usr/bin/nas-smartmount.sh \
+          bsdtar xOf "${pkg}" usr/bin/nas-smartmount.sh \
             | grep -qx "VER=${pkgver}" \
             || { echo "VER du binaire != ${pkgver}" >&2; exit 1; }
-          for lang in usr/share/man/man8/nas-smartmount.8 usr/share/man/fr/man8/nas-smartmount.8; do
-            bsdtar xOf "$pkg" "$lang" | grep -q "\"smart-mount ${pkgver}\"" \
+          for lang in usr/share/man/man8/nas-smartmount.8.gz \
+                      usr/share/man/fr/man8/nas-smartmount.8.gz; do
+            bsdtar xOf "${pkg}" "$lang" | gzip -dc | grep -q "\"smart-mount ${pkgver}\"" \
               || { echo "page de man pas à ${pkgver} : ${lang}" >&2; exit 1; }
           done
-          echo "contenu et versions conformes"
+          echo "contenu, versions et signature conformes"
 
       - name: Attachement à la release
         if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''

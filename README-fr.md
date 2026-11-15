@@ -128,6 +128,27 @@ dans `/etc/systemd/system`, puis active le timer.
 Le questionnaire demande combien de partages vous voulez, leur type (NFS ou CIFS), puis
 les détails de chacun, et enfin le SSID Wi-Fi et les deux noms d'interface.
 
+### Paquets signés
+
+Le paquet binaire produit par la CI (`smart-mount-<version>-1-any.pkg.tar.zst`) est
+signé avec la clé d'empaquetage, dont l'empreinte est
+
+    8284 B7E6 5BF5 E7C2 A811  25ED 1768 F83F EA05 5EF1
+
+La moitié publique est dans ce dépôt, `packaging-key.asc`. Pour lui faire confiance
+avant d'installer un paquet téléchargé :
+
+```
+sudo pacman-key --add packaging-key.asc
+sudo pacman-key --lsign-key 8284B7E65BF5E7C2A81125ED1768F83FEA055EF1
+gpg --verify smart-mount-<version>-1-any.pkg.tar.zst.sig smart-mount-<version>-1-any.pkg.tar.zst
+sudo pacman -U smart-mount-<version>-1-any.pkg.tar.zst
+```
+
+`--lsign-key` est une décision de confiance locale, pas une signature de la clé :
+elle dit à votre trousseau que cette clé a le droit de signer des paquets. Rien de
+tout cela ne part vers un serveur de clés.
+
 ## Configuration
 
 `/etc/smart-mount/config`, sourcé par le script (root uniquement, mode 0600). Un
