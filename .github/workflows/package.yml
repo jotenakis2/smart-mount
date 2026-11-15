@@ -1,0 +1,86 @@
+name: package
+
+# Construit le paquet binaire et l'attache à la release publiée.
+# Le paquet est arch=('any') : du bash et des pages de man, rien n'est compilé, donc
+# un seul artefact vaut pour toutes les architectures. Ce workflow ne publie rien sur
+# l'AUR (qui attend un PKGBUILD, pas un binaire).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag à empaqueter (ex. v1.28)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Dépendances de construction
+        run: pacman -Syu --noconfirm --needed base-devel git github-cli
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      # La suite tourne aussi ici : une release ne doit pas partir sur un arbre
+      # cassé, même si check.yml est déjà passé sur le même commit.
+      - name: Contrôles (syntaxe, style, tests)
+        run: make check
+
+      - name: Construction avec makepkg
+        run: |
+          set -e
+          # makepkg refuse de tourner en root : l'arbre est donné à un utilisateur
+          # de construction, qui récupère l'archive du tag via le PKGBUILD.
+          useradd -m builder
+          chown -R builder .
+          # --nodeps : les dépendances du paquet sont des dépendances d'EXÉCUTION
+          # (NetworkManager, systemd, nfs-utils…), inutiles pour produire des
+          # fichiers dans un conteneur.
+          su builder -c 'makepkg -f --nodeps'
+
+      - name: Contrôle du paquet produit
+        run: |
+          set -e
+          pkg=$(ls -1 smart-mount-*.pkg.tar.* | head -1)
+          echo "paquet : $pkg"
+          pkgver=$(sed -n 's/^pkgver=//p' PKGBUILD)
+          echo "version attendue : $pkgver"
+
+          bsdtar tf "$pkg" | sort > /tmp/contents
+          for f in etc/NetworkManager/dispatcher.d/98-eth-nas-mac \
+                   etc/NetworkManager/dispatcher.d/99-wifi-nas-mount \
+                   etc/systemd/system/nas-network-check.service \
+                   etc/systemd/system/nas-network-check.timer \
+                   usr/bin/nas-smartmount.sh \
+                   usr/share/man/man8/nas-smartmount.8 \
+                   usr/share/man/fr/man8/nas-smartmount.8; do
+            grep -qx "$f" /tmp/contents || { echo "manquant dans le paquet : $f" >&2; exit 1; }
+          done
+
+          # Le binaire et les deux pages de man doivent annoncer la version du
+          # PKGBUILD : elles étaient restées à 1.25 alors que le code était en 1.28.
+          bsdtar xOf "$pkg" usr/bin/nas-smartmount.sh \
+            | grep -qx "VER=${pkgver}" \
+            || { echo "VER du binaire != ${pkgver}" >&2; exit 1; }
+          for lang in usr/share/man/man8/nas-smartmount.8 usr/share/man/fr/man8/nas-smartmount.8; do
+            bsdtar xOf "$pkg" "$lang" | grep -q "\"smart-mount ${pkgver}\"" \
+              || { echo "page de man pas à ${pkgver} : ${lang}" >&2; exit 1; }
+          done
+          echo "contenu et versions conformes"
+
+      - name: Attachement à la release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          tag="${{ inputs.tag || github.ref_name }}"
+          gh release upload "$tag" smart-mount-*.pkg.tar.* --clobber
+          gh release view "$tag" --json assets --jq '.assets[].name'
