@@ -174,15 +174,16 @@ jobs:
       - name: nfpm (binaire épinglé, somme de contrôle vérifiée)
         run: |
           set -e
+          # nfpm nomme ses archives par plateforme Go : nfpm_<v>_Linux_x86_64.tar.gz
           case "$(uname -m)" in
-            x86_64) arch=amd64 ;;
+            x86_64) arch=x86_64 ;;
             aarch64|arm64) arch=arm64 ;;
             *) echo "architecture non gérée : $(uname -m)" >&2; exit 1 ;;
           esac
           base="https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}"
-          name="nfpm_${NFPM_VERSION}_linux_${arch}.tar.gz"
+          name="nfpm_${NFPM_VERSION}_Linux_${arch}.tar.gz"
           curl -fsSL -o "/tmp/${name}" "${base}/${name}"
-          curl -fsSL -o /tmp/nfpm-checksums.txt "${base}/nfpm_${NFPM_VERSION}_checksums.txt"
+          curl -fsSL -o /tmp/nfpm-checksums.txt "${base}/checksums.txt"
           ( cd /tmp && grep " ${name}\$" nfpm-checksums.txt | sha256sum -c - )
           tar xzf "/tmp/${name}" -C /usr/local/bin nfpm
           nfpm --version | sed -n '4p'
