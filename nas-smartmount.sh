@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.28
+VER=1.29
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
