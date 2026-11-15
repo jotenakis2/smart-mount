@@ -8,6 +8,9 @@ src/
 *src.tar.gz
 smart-mount-*.tar.gz
 
+# Paquets deb/rpm (nfpm) et arbre de staging
+dist/
+
 # Divers
 *.log
 *.orig

@@ -128,6 +128,29 @@ dans `/etc/systemd/system`, puis active le timer.
 Le questionnaire demande combien de partages vous voulez, leur type (NFS ou CIFS), puis
 les détails de chacun, et enfin le SSID Wi-Fi et les deux noms d'interface.
 
+### Paquets Debian et Fedora
+
+La CI produit aussi `smart-mount_<version>_all.deb` et `smart-mount-<version>.noarch.rpm`
+avec [nfpm](https://nfpm.goreleaser.com), depuis le même arbre que `make install`. Les
+deux sont attachés à la release, chacun avec une signature détachée (`.deb.asc`,
+`.rpm.asc`) faite par la clé d'empaquetage ci-dessous :
+
+```
+gpg --verify smart-mount_<version>_all.deb.asc smart-mount_<version>_all.deb
+sudo apt install ./smart-mount_<version>_all.deb
+gpg --verify smart-mount-<version>.noarch.rpm.asc smart-mount-<version>.noarch.rpm
+sudo dnf install ./smart-mount-<version>.noarch.rpm
+```
+
+**NetworkManager est indispensable** : les deux hooks vivent dans son dispatcher, donc
+sans lui rien ne déclenche jamais un montage. Les paquets le déclarent en dépendance et
+le script de post-installation prévient si `nmcli` est absent. Ce même script désactive
+les anciens noms `nfs-network-check.timer` lors d'une montée de version depuis avant
+1.25, puis active `nas-network-check.timer`.
+
+`/etc/smart-mount/config` n'appartient à aucun paquet : lancez
+`sudo nas-smartmount.sh setup` après installation.
+
 ### Paquets signés
 
 Le paquet binaire produit par la CI (`smart-mount-<version>-1-any.pkg.tar.zst`) est

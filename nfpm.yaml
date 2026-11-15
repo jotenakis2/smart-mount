@@ -1,0 +1,113 @@
+# Paquets deb et rpm, produits par nfpm depuis le même arbre que `make install`.
+#
+#   packaging/stage.sh dist/stage          prépare les fichiers (chemins /usr/bin,
+#                                          man compressées)
+#   VERSION=1.28 nfpm package -f nfpm.yaml -p deb -t dist/
+#   VERSION=1.28 nfpm package -f nfpm.yaml -p rpm -t dist/
+#
+# Le paquet est arch=all / noarch : du bash, des hooks et des pages de man.
+# Les dépendances diffèrent réellement d'une famille à l'autre, d'où les overrides.
+
+name: smart-mount
+arch: all
+platform: linux
+version: ${VERSION}
+release: "1"
+section: admin
+priority: optional
+maintainer: Olivier Lorillu <contact@jotenakis.ovh>
+vendor: jotenakis
+homepage: https://github.com/jotenakis2/smart-mount
+license: MIT
+description: |
+  Mount NFS and CIFS shares only when the right network and the right server are
+  present, and keep them healthy.
+
+  Each share is identified by the server MAC read from the ARP table of the link
+  in use, so a Wi-Fi access point with the same SSID elsewhere cannot make it
+  mount. A single policy decides for every share; two NetworkManager hooks and a
+  systemd timer only trigger it, so they cannot undo each other's work. A mount
+  that stops answering is repaired, and an unmount is deferred while a transfer
+  holds the mount point.
+
+  Requires NetworkManager: the hooks live in its dispatcher, so without it
+  nothing ever triggers a mount.
+depends:
+  - bash
+  - coreutils
+  - util-linux
+  - iproute2
+  - systemd
+overrides:
+  deb:
+    depends:
+      - bash
+      - coreutils
+      - util-linux
+      - iproute2
+      - iputils-ping
+      - nfs-common
+      - network-manager
+      - systemd
+      - whiptail
+    recommends:
+      - cifs-utils
+      - iw
+  rpm:
+    depends:
+      - bash
+      - coreutils
+      - util-linux
+      - iproute2
+      - iputils
+      - nfs-utils
+      - NetworkManager
+      - systemd
+      - newt
+    recommends:
+      - cifs-utils
+      - iw
+contents:
+  - src: dist/stage/nas-smartmount.sh
+    dst: /usr/bin/nas-smartmount.sh
+    file_info:
+      mode: 0755
+  - src: dist/stage/setup.sh
+    dst: /usr/bin/smart-mount-setup
+    file_info:
+      mode: 0755
+  - src: dist/stage/98-eth-nas-mac
+    dst: /etc/NetworkManager/dispatcher.d/98-eth-nas-mac
+    file_info:
+      mode: 0700
+  - src: dist/stage/99-wifi-nas-mount
+    dst: /etc/NetworkManager/dispatcher.d/99-wifi-nas-mount
+    file_info:
+      mode: 0700
+  - src: dist/stage/nas-network-check.service
+    dst: /etc/systemd/system/nas-network-check.service
+    file_info:
+      mode: 0644
+  - src: dist/stage/nas-network-check.timer
+    dst: /etc/systemd/system/nas-network-check.timer
+    file_info:
+      mode: 0644
+  - src: dist/stage/nas-smartmount.8.gz
+    dst: /usr/share/man/man8/nas-smartmount.8.gz
+    file_info:
+      mode: 0644
+  - src: dist/stage/nas-smartmount.fr.8.gz
+    dst: /usr/share/man/fr/man8/nas-smartmount.8.gz
+    file_info:
+      mode: 0644
+  - src: dist/stage/packaging-key.asc
+    dst: /usr/share/doc/smart-mount/packaging-key.asc
+    file_info:
+      mode: 0644
+  - src: dist/stage/LICENSE
+    dst: /usr/share/doc/smart-mount/LICENSE
+    file_info:
+      mode: 0644
+scripts:
+  postinstall: packaging/postinstall.sh
+  preremove: packaging/preremove.sh

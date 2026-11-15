@@ -150,3 +150,117 @@ jobs:
           git config --global --add safe.directory "${GITHUB_WORKSPACE}" || true
           gh release upload "$tag" smart-mount-*.pkg.tar.* --clobber --repo "${GITHUB_REPOSITORY}"
           gh release view "$tag" --json assets --jq '.assets[].name' --repo "${GITHUB_REPOSITORY}"
+
+  # Paquets natifs deb et rpm, produits par nfpm depuis le même arbre que
+  # `make install`. Le paquet pacman du job précédent reste le seul à être signé
+  # par makepkg ; ici la signature est détachée (.sig), vérifiable avec la même
+  # clé publique du dépôt.
+  deb-rpm:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    env:
+      NFPM_VERSION: "2.49.0"
+    steps:
+      - name: Dépendances
+        run: pacman -Syu --noconfirm --needed base-devel git github-cli gnupg curl gzip
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Contrôles (syntaxe, style, tests)
+        run: make check
+
+      - name: nfpm (binaire épinglé, somme de contrôle vérifiée)
+        run: |
+          set -e
+          case "$(uname -m)" in
+            x86_64) arch=amd64 ;;
+            aarch64|arm64) arch=arm64 ;;
+            *) echo "architecture non gérée : $(uname -m)" >&2; exit 1 ;;
+          esac
+          base="https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}"
+          name="nfpm_${NFPM_VERSION}_linux_${arch}.tar.gz"
+          curl -fsSL -o "/tmp/${name}" "${base}/${name}"
+          curl -fsSL -o /tmp/nfpm-checksums.txt "${base}/nfpm_${NFPM_VERSION}_checksums.txt"
+          ( cd /tmp && grep " ${name}\$" nfpm-checksums.txt | sha256sum -c - )
+          tar xzf "/tmp/${name}" -C /usr/local/bin nfpm
+          nfpm --version | sed -n '4p'
+
+      - name: Construction des paquets
+        run: make packages
+
+      - name: Signature détachée
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        run: |
+          set -e
+          umask 077
+          printf '%s\n' "${GPG_PRIVATE_KEY}" > /tmp/signing-key.asc
+          printf '%s' "${GPG_PASSPHRASE}" > /tmp/signing-pass
+          install -d -m 700 ~/.gnupg
+          echo 'allow-loopback-pinentry' > ~/.gnupg/gpg-agent.conf
+          echo 'pinentry-mode loopback' > ~/.gnupg/gpg.conf
+          gpgconf --kill gpg-agent 2>/dev/null || true
+          gpg --batch --import /tmp/signing-key.asc
+          gpg --batch --pinentry-mode loopback --passphrase-file /tmp/signing-pass \
+              --local-user "${GPG_KEY_ID}" --detach-sign -o /dev/null /dev/null
+          for pkg in dist/*.deb dist/*.rpm; do
+            gpg --batch --yes --pinentry-mode loopback --passphrase-file /tmp/signing-pass \
+                --local-user "${GPG_KEY_ID}" --armor --detach-sign "${pkg}"
+            echo "signé : ${pkg}.asc"
+          done
+          rm -f /tmp/signing-key.asc /tmp/signing-pass
+
+      - name: Contrôle du contenu
+        run: |
+          set -e
+          deb=$(ls dist/*.deb); rpm=$(ls dist/*.rpm)
+          echo "deb : $deb"; echo "rpm : $rpm"
+
+          # rpm : libarchive lit la charge directement
+          bsdtar tf "$rpm" | grep -q 'etc/NetworkManager/dispatcher.d/98-eth-nas-mac' \
+            || { echo "hook absent du rpm" >&2; exit 1; }
+          bsdtar tf "$rpm" | grep -q 'usr/share/man/fr/man8/nas-smartmount.8.gz' \
+            || { echo "page de man FR absente du rpm" >&2; exit 1; }
+
+          # deb : ar, puis l'archive de données
+          member=$(ar t "$deb" | grep '^data\.tar' | head -1)
+          ar p "$deb" "$member" | bsdtar tf - | grep -q 'usr/bin/nas-smartmount.sh' \
+            || { echo "binaire absent du deb" >&2; exit 1; }
+          ctrl=$(ar t "$deb" | grep '^control\.tar' | head -1)
+          control=$(ar p "$deb" "$ctrl" | bsdtar xOf - ./control)
+          for dep in nfs-common network-manager iputils-ping whiptail; do
+            printf '%s' "$control" | grep -q "$dep" \
+              || { echo "dépendance deb manquante : $dep" >&2; exit 1; }
+          done
+          # la charge rpm doit nommer les paquets de sa famille
+          for dep in nfs-utils NetworkManager iputils newt; do
+            strings "$rpm" | grep -qx "$dep" \
+              || { echo "dépendance rpm manquante : $dep" >&2; exit 1; }
+          done
+
+          # le binaire et les pages de man annoncent la version du PKGBUILD
+          pkgver=$(sed -n 's/^pkgver=//p' PKGBUILD)
+          ar p "$deb" "$member" | bsdtar xOf - ./usr/bin/nas-smartmount.sh | grep -qx "VER=${pkgver}" \
+            || { echo "VER du binaire deb != ${pkgver}" >&2; exit 1; }
+
+          # signatures
+          for f in "$deb" "$rpm"; do
+            [ -f "${f}.asc" ] || { echo "signature absente : ${f}.asc" >&2; exit 1; }
+            gpg --batch --verify "${f}.asc" "${f}"
+          done
+          echo "contenu, dépendances et signatures conformes"
+
+      - name: Attachement à la release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          tag="${{ inputs.tag || github.ref_name }}"
+          gh release upload "$tag" dist/*.deb dist/*.rpm dist/*.deb.asc dist/*.rpm.asc \
+            --clobber --repo "${GITHUB_REPOSITORY}"
+          gh release view "$tag" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name'

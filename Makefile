@@ -8,6 +8,8 @@ POLKIT_ACTIONS_DIR ?= $(PREFIX)/share/polkit-1/actions
 INSTALL ?= install
 CHOWN ?= chown
 RM ?= rm -f
+NFPM ?= nfpm
+STAGE_DIR := dist/stage
 
 DISPATCHER_SCRIPTS := 98-eth-nas-mac 99-wifi-nas-mount
 BIN_SCRIPT := nas-smartmount.sh
@@ -30,7 +32,7 @@ SETUP_SCRIPT := setup.sh
 # util-linux, whiptail, NetworkManager.
 RUNTIME_DEPS := mount.nfs ip ping timeout logger whiptail nmcli
 
-.PHONY: all install uninstall check deps verify
+.PHONY: all install uninstall check deps verify packages
 
 all:
 	@printf '%s\n' "Targets: install uninstall check deps verify"
@@ -147,6 +149,17 @@ install: deps check
 		systemctl daemon-reload; \
 		systemctl enable --now nas-network-check.timer; \
 	fi
+
+# Paquets deb et rpm, depuis le même arbre que `make install` (nfpm requis :
+# https://nfpm.goreleaser.com). Les noms de dépendances diffèrent d'une famille à
+# l'autre, c'est nfpm.yaml qui porte les deux listes.
+packages: check
+	./packaging/stage.sh $(STAGE_DIR)
+	VERSION=$(shell sed -n 's/^VER=//p' nas-smartmount.sh) \
+		$(NFPM) package -f nfpm.yaml -p deb -t dist/
+	VERSION=$(shell sed -n 's/^VER=//p' nas-smartmount.sh) \
+		$(NFPM) package -f nfpm.yaml -p rpm -t dist/
+	@ls -l dist/*.deb dist/*.rpm
 
 verify:
 	systemd-analyze verify \

@@ -125,6 +125,29 @@ git clone https://github.com/jotenakis2/smart-mount && cd smart-mount && sudo ma
 The wizard asks how many shares you want, their type (NFS or CIFS), then the details of
 each one, and finally the Wi-Fi SSID and the two interface names.
 
+### Debian and Fedora packages
+
+CI also builds `smart-mount_<version>_all.deb` and `smart-mount-<version>.noarch.rpm`
+with [nfpm](https://nfpm.goreleaser.com), from the same tree as `make install`. Both
+are attached to the release, each with a detached signature (`.deb.asc`, `.rpm.asc`)
+made by the packaging key below:
+
+```
+gpg --verify smart-mount_<version>_all.deb.asc smart-mount_<version>_all.deb
+sudo apt install ./smart-mount_<version>_all.deb
+gpg --verify smart-mount-<version>.noarch.rpm.asc smart-mount-<version>.noarch.rpm
+sudo dnf install ./smart-mount-<version>.noarch.rpm
+```
+
+**NetworkManager is required**: both hooks live in its dispatcher, so without it nothing
+ever triggers a mount. The packages declare it as a dependency and the post-install
+script warns if `nmcli` is missing. The post-install script also disables the old
+`nfs-network-check.timer` names when upgrading from before 1.25, then enables
+`nas-network-check.timer`.
+
+`/etc/smart-mount/config` is not part of any package: run `sudo nas-smartmount.sh setup`
+after installing.
+
 ### Signed packages
 
 The binary package built by CI (`smart-mount-<version>-1-any.pkg.tar.zst`) is signed
