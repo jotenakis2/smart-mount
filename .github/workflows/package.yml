@@ -77,6 +77,14 @@ jobs:
           # makepkg refuse de tourner en root : l'arbre est donné à un utilisateur
           # de construction, qui importe la clé dans SON trousseau.
           useradd -m builder
+          # Même raison que pour la clé publique : un tag antérieur à ce workflow
+          # ne contient pas le script de construction, on le prend sur la branche
+          # par défaut.
+          script=.github/scripts/build-signed.sh
+          if [ ! -f "${script}" ]; then
+            curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/HEAD/${script}" \
+              -o "${script}"
+          fi
           chown -R builder .
           install -o builder -g builder -m 600 /tmp/signing-key.asc /home/builder/signing-key.asc
           install -o builder -g builder -m 600 /tmp/signing-pass /home/builder/signing-pass
