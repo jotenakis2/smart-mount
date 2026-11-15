@@ -22,7 +22,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Dépendances de construction
-        run: pacman -Syu --noconfirm --needed base-devel git github-cli gnupg shellcheck python
+        run: pacman -Syu --noconfirm --needed base-devel git github-cli gnupg shellcheck python curl
 
       - uses: actions/checkout@v4
         with:
@@ -50,9 +50,17 @@ jobs:
           printf '%s\n' "${GPG_PRIVATE_KEY}" > /tmp/signing-key.asc
           printf '%s' "${GPG_PASSPHRASE}" > /tmp/signing-pass
           chmod 600 /tmp/signing-key.asc /tmp/signing-pass
-          # la clé publique du dépôt doit correspondre à la clé privée fournie
+          # la clé publique du dépôt doit correspondre à la clé privée fournie.
+          # Un tag antérieur à la publication de la clé n'en contient pas : on
+          # prend alors celle de la branche par défaut, c'est celle-là que les
+          # utilisateurs importent.
+          key_file=packaging-key.asc
+          if [ ! -f "${key_file}" ]; then
+            curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/HEAD/packaging-key.asc" \
+              -o "${key_file}"
+          fi
           gpg --batch --import /tmp/signing-key.asc 2>/dev/null
-          expected=$(gpg --batch --show-keys --with-colons packaging-key.asc \
+          expected=$(gpg --batch --show-keys --with-colons "${key_file}" \
             | awk -F: '/^fpr/ {print $10; exit}')
           actual=$(gpg --batch --with-colons --list-secret-keys | awk -F: '/^fpr/ {print $10; exit}')
           if [ "${expected}" != "${actual}" ]; then
@@ -86,8 +94,14 @@ jobs:
 
           [ -f "${sig}" ] || { echo "pas de signature : ${sig}" >&2; exit 1; }
           # la signature doit vérifier avec la clé publique du dépôt, seule clé
-          # qu'un utilisateur aura importée
-          gpg --batch --import packaging-key.asc 2>/dev/null
+          # qu'un utilisateur aura importée (absente des tags antérieurs à sa
+          # publication : repli sur la branche par défaut)
+          key_file=packaging-key.asc
+          if [ ! -f "${key_file}" ]; then
+            curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/HEAD/packaging-key.asc" \
+              -o "${key_file}"
+          fi
+          gpg --batch --import "${key_file}" 2>/dev/null
           gpg --batch --verify "${sig}" "${pkg}"
 
           bsdtar tf "${pkg}" | sort > /tmp/contents
