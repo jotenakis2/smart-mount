@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-VER=1.27
+VER=1.28
 # Surchargeable uniquement pour les tests (tests/run.sh). Ni NetworkManager ni
 # le timer ne definissent cette variable : en production le chemin reste /etc.
 readonly CONFIG="${SMARTMOUNT_CONFIG:-/etc/smart-mount/config}"
@@ -50,6 +50,8 @@ msg() {
             unmount_ok)           text='[%s] démontage réussi' ;;
             unmount_blocked)      text='[%s] démontage bloqué (point occupé ?), repli paresseux' ;;
             holders_note)         text='[%s] %s processus tiennent encore le montage (E/S en cours)' ;;
+            unmount_deferred)     text='[%s] %s processus tiennent le montage (%s/%s) : demontage reporte, un transfert en cours garde son superbloc' ;;
+            unmount_busy_forced)  text='[%s] toujours tenu apres %s passages : demontage quand meme, les processus gardent l ancien superbloc jusqu au retour du serveur' ;;
             lazy_holders)         text='[%s] détaché, mais %s processus le tiennent encore : leurs E/S reprendront au retour du serveur' ;;
             session_lingering)    text='[%s] session vers %s encore vivante dans le noyau (%s/%s) : montage reporté' ;;
             session_stuck)        text='[%s] session vers %s toujours bloquée après %s passages : montage quand même, l ecrivain bloqué garde son superbloc jusqu au retour du serveur ou un redémarrage' ;;
@@ -154,6 +156,8 @@ msg() {
             unmount_ok)           text='[%s] unmount succeeded' ;;
             unmount_blocked)      text='[%s] unmount blocked (busy mount point?), trying lazy unmount' ;;
             holders_note)         text='[%s] %s process(es) still hold the mount (I/O in progress)' ;;
+            unmount_deferred)     text='[%s] %s process(es) hold the mount (%s/%s): unmount deferred, a running transfer keeps its superblock' ;;
+            unmount_busy_forced)  text='[%s] still held after %s runs: unmounting anyway, the holders keep the old superblock until the server returns' ;;
             lazy_holders)         text='[%s] detached, but %s process(es) still hold it: their I/O resumes if the server returns' ;;
             session_lingering)    text='[%s] previous session to %s still alive in the kernel (%s/%s): mount deferred' ;;
             session_stuck)        text='[%s] session to %s still stuck after %s runs: mounting anyway, the blocked writer keeps its own superbloc until the server returns or this machine reboots' ;;
@@ -654,14 +658,26 @@ unmount_one() { # unmount_one <point>
         return 0
     fi
 
-    local holders
+    local holders n_holders=0 n_defer=''
     holders="$(mount_holders "${mount}")"
     if [[ -n "${holders}" ]]; then
-        log_notice "$(msg holders_note "${mount}" "$(printf '%s' "${holders}" | wc -w)")"
+        n_holders=$(printf '%s' "${holders}" | wc -w)
+        # Un transfert en cours garde son superbloc : le détacher ne libère rien
+        # et lui fait perdre son point de montage sous les pieds. On attend, mais
+        # pas indéfiniment — sinon un montage figé ne serait plus jamais démonté.
+        n_defer="$(defer_count "umount:${mount}" 1)"
+        if [[ ${n_defer} =~ ^[0-9]+$ ]] && (( n_defer < MAX_DEFER )); then
+            log_notice "$(msg unmount_deferred "${mount}" "${n_holders}" "${n_defer}" "${MAX_DEFER}")"
+            return 0
+        fi
+        log_warning "$(msg unmount_busy_forced "${mount}" "${n_defer}")"
+    else
+        defer_count "umount:${mount}" 0
     fi
 
     if timeout 10 umount -- "${mount}" 2>/dev/null; then
         log_info "$(msg unmount_ok "${mount}")"
+        defer_count "umount:${mount}" 0
         return 0
     fi
 
@@ -675,6 +691,7 @@ unmount_one() { # unmount_one <point>
     # portable part avec un montage dur actif et fige au prochain accès.
     log_warning "$(msg unmount_blocked "${mount}")"
     if umount_lazy "${mount}"; then
+        defer_count "umount:${mount}" 0
         # `-l` détache de l'arborescence ; les écrivains bloqués gardent le
         # superbloc et reprendront si le serveur revient. Le dire, au lieu de
         # laisser croire que tout est réglé.

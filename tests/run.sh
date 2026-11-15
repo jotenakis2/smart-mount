@@ -1244,17 +1244,31 @@ check "plafond : code 0" 0 "${rc}"
 check "plafond : montage tenté malgré la session" oui "$(called '^mount -t nfs')"
 check "plafond : escalade journalisée" oui "$(called 'still stuck after')"
 
-# Un démontage paresseux sur un montage tenu par un écrivain bloqué : le journal
-# doit dire que le superbloc survit, pas seulement « détaché ».
-new_case lazy_with_holders
+# Montage tenu par un transfert en cours : le démontage est reporté, deux fois,
+# puis il passe — sinon un montage figé ne serait jamais démonté.
+new_case holders_defer
 stub mountpoint 'printf "mountpoint\n" >> "$CALLS"; exit 0'
-# le vrai fuser écrit les PID sur stdout ; le stub doit en faire autant
 stub fuser 'printf "fuser %s\n" "$*" >> "$CALLS"; printf "/mnt: 1234c 5678r\n"'
 stub umount 'printf "umount %s\n" "$*" >> "$CALLS"; case "$*" in *-l*) exit 0 ;; *) exit 1 ;; esac'
-rc="$(run_script unmount)"
-check "tenants : code 0" 0 "${rc}"
-check "tenants : démontage paresseux" oui "$(called '^umount .*-l')"
-check "tenants : superbloc signalé" oui "$(called 'still hold it')"
+mkdir -p "${CASE_DIR}/state"
+run_unmount() {
+    ( PATH="${CASE_DIR}/bin:${PATH}" SMARTMOUNT_CONFIG="${CASE_DIR}/config" SMARTMOUNT_DEPS="" \
+        SMARTMOUNT_STATE_DIR="${CASE_DIR}/state" bash "${SCRIPT}" unmount >/dev/null 2>&1 )
+    echo $?
+}
+rc="$(run_unmount)"
+check "tenants : premier passage, code 0" 0 "${rc}"
+check "tenants : premier passage, démontage reporté" oui "$(called 'unmount deferred')"
+check "tenants : premier passage, aucun umount" oui "$(not_called '^umount ')"
+rc="$(run_unmount)"
+check "tenants : deuxième passage, encore reporté" oui "$(called 'unmount deferred')"
+
+# Troisième passage : le plafond tombe, on démonte malgré les tenants.
+rc="$(run_unmount)"
+check "tenants : plafond, code 0" 0 "${rc}"
+check "tenants : plafond, umount tenté" oui "$(called '^umount ')"
+check "tenants : plafond, escalade journalisée" oui "$(called 'still held after')"
+check "tenants : plafond, superbloc signalé" oui "$(called 'still hold it')"
 
 # --- sessions noyau et options NFS -----------------------------------------
 
