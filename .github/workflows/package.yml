@@ -78,17 +78,20 @@ jobs:
           # de construction, qui importe la clé dans SON trousseau.
           useradd -m builder
           # Même raison que pour la clé publique : un tag antérieur à ce workflow
-          # ne contient pas le script de construction, on le prend sur la branche
-          # par défaut.
-          script=.github/scripts/build-signed.sh
-          if [ ! -f "${script}" ]; then
-            curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/HEAD/${script}" \
+          # ne contient pas le script de construction. Il est copié (ou récupéré
+          # sur la branche par défaut) dans /tmp, qui existe toujours.
+          script=/tmp/build-signed.sh
+          if [ -f .github/scripts/build-signed.sh ]; then
+            cp .github/scripts/build-signed.sh "${script}"
+          else
+            curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/HEAD/.github/scripts/build-signed.sh" \
               -o "${script}"
           fi
+          chmod 755 "${script}"
           chown -R builder .
           install -o builder -g builder -m 600 /tmp/signing-key.asc /home/builder/signing-key.asc
           install -o builder -g builder -m 600 /tmp/signing-pass /home/builder/signing-pass
-          runuser -u builder -- bash .github/scripts/build-signed.sh "${GPG_KEY_ID}"
+          runuser -u builder -- bash /tmp/build-signed.sh "${GPG_KEY_ID}"
           rm -f /tmp/signing-key.asc /tmp/signing-pass
 
       - name: Contrôle du paquet produit
