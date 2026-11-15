@@ -333,6 +333,11 @@ server (`mount.cifs` is exercised through a stub only).
   (216 s total instead of 37 s, `dd` exit code 0). The price is a freeze that no signal
   can interrupt — `kill -9` stays queued until the server answers again. With `soft` the
   same outage would fail the transfer halfway, and a truncated file can pass unnoticed.
+- An unmount is **deferred** while a process holds the mount point (the same bound:
+  3 runs), so a transfer in progress is not detached under its own feet — measured, a
+  2 GB write survived a 3-minute outage and finished with `dd` in code 0, which stops
+  being true if the mount is pulled away mid-write. After the bound the unmount happens
+  anyway and the journal says so.
 - A **lazy unmount does not release a blocked writer**. It detaches the mount point from
   the tree, but the superblock survives, the process stays in `D`, and its I/O resumes
   when the server returns. The journal says so — `detached, but N process(es) still hold

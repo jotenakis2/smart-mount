@@ -346,6 +346,11 @@ serveur CIFS (`mount.cifs` n'est exercé qu'à travers un stub).
   figement qu'aucun signal n'interrompt — `kill -9` reste en attente jusqu'au retour du
   serveur. Avec `soft`, la même panne ferait échouer le transfert en route, et un fichier
   tronqué peut passer inaperçu.
+- Un démontage est **reporté** tant qu'un processus tient le point de montage (même
+  plafond : 3 passages), pour ne pas détacher un transfert en cours sous ses pieds —
+  mesuré : 2 Go ont survécu à 3 minutes de coupure et se sont terminés en code 0, ce qui
+  n'est plus vrai si le montage est retiré pendant l'écriture. Passé le plafond, le
+  démontage a lieu et le journal le dit.
 - Un **démontage paresseux ne libère pas un écrivain bloqué**. Il détache le point de
   montage de l'arborescence, mais le superbloc survit, le processus reste en `D`, et ses
   E/S reprennent au retour du serveur. Le journal le dit — « détaché, mais N processus le
