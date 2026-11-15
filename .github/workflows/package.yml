@@ -145,5 +145,8 @@ jobs:
         run: |
           set -e
           tag="${{ inputs.tag || github.ref_name }}"
-          gh release upload "$tag" smart-mount-*.pkg.tar.* --clobber
-          gh release view "$tag" --json assets --jq '.assets[].name'
+          # L'arbre appartient à l'utilisateur de construction : gh n'a pas besoin
+          # de git ici (--repo), et on lève quand même la garde de propriété.
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}" || true
+          gh release upload "$tag" smart-mount-*.pkg.tar.* --clobber --repo "${GITHUB_REPOSITORY}"
+          gh release view "$tag" --json assets --jq '.assets[].name' --repo "${GITHUB_REPOSITORY}"
