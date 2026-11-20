@@ -6,7 +6,7 @@
 # l'ordre des dépendances ne garantit pas que le paquet soit déjà configuré.
 set -e
 
-if [ -d /run/systemd/system ]; then
+if [[ -d /run/systemd/system ]]; then
     # 1.25 : les unités et les hooks ont été renommés (nfs -> nas). Un poste qui
     # portait les anciens noms ne doit pas se retrouver avec deux hooks et deux
     # timers faisant le même travail.
@@ -26,17 +26,28 @@ if ! command -v nmcli >/dev/null 2>&1; then
     echo "             ne seront jamais déclenchés. Installez NetworkManager."
 fi
 
-echo
-echo "smart-mount est installé, mais aucun partage n'est configuré."
-echo
-echo "  1. questionnaire (écrit /etc/smart-mount/config) :"
-echo "         sudo nas-smartmount.sh setup"
-echo "  2. vérifier la décision sans rien monter :"
-echo "         sudo SMARTMOUNT_DRY_RUN=1 nas-smartmount.sh apply"
-echo "  3. état des montages :"
-echo "         sudo nas-smartmount.sh show"
-echo
-echo "Sans MAC cible, un partage ne monte jamais (code 4) : la MAC se lit avec"
-echo "  ip neigh show <IP_DU_SERVEUR>, ou dans les baux DHCP de la box."
-echo
+# Même logique que le scriptlet pacman : sur une machine déjà configurée, le
+# questionnaire et ses conseils n'ont pas lieu d'être affichés, et annoncer
+# « aucun partage » serait faux (/etc/smart-mount/config est laissé en place).
+if [[ ! -r /etc/smart-mount/config ]]; then
+    echo
+    echo "smart-mount est installé, mais aucun partage n'est configuré."
+    echo
+    echo "  1. questionnaire (écrit /etc/smart-mount/config) :"
+    echo "         sudo nas-smartmount.sh setup"
+    echo "  2. vérifier la décision sans rien monter :"
+    echo "         sudo SMARTMOUNT_DRY_RUN=1 nas-smartmount.sh apply"
+    echo "  3. état des montages :"
+    echo "         sudo nas-smartmount.sh show"
+    echo
+    echo "Sans MAC cible, un partage ne monte jamais (code 4) : la MAC se lit avec"
+    echo "  ip neigh show <IP_DU_SERVEUR>, ou dans les baux DHCP de la box."
+    echo
+else
+    echo
+    echo "smart-mount est installé ; /etc/smart-mount/config est conservé."
+    echo "État des montages :"
+    echo "         sudo nas-smartmount.sh show"
+    echo
+fi
 exit 0

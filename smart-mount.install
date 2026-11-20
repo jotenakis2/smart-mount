@@ -1,3 +1,6 @@
+# shellcheck shell=bash
+# pacman exécute ce scriptlet sous /bin/sh, qui est bash sur Arch (le paquet
+# dépend de bash) : les motifs [[ ]] sont volontaires.
 post_install() {
     # Contrairement à `make install`, pacman n'active rien : sans ceci le timer
     # reste inerte et rien ne monte tant que le hook réseau n'a pas parlé.
@@ -14,7 +17,12 @@ post_install() {
     systemctl daemon-reload >/dev/null 2>&1 || true
     systemctl enable --now nas-network-check.timer >/dev/null 2>&1 || true
 
-    cat <<'EOF'
+    # Le questionnaire n'a de sens que sans configuration : sur une mise à jour
+    # d'un poste déjà configuré, ce bloc annonçait « aucun partage » alors que
+    # /etc/smart-mount/config existait et restait intact (le paquet ne le touche
+    # pas). Les conseils de premier lancement n'étaient donc que du bruit.
+    if [[ ! -r /etc/smart-mount/config ]]; then
+        cat <<'EOF'
 smart-mount est installé, mais aucun partage n'est configuré.
 
   1. lancer le questionnaire (il écrit /etc/smart-mount/config) :
@@ -39,6 +47,14 @@ Si l'action polkit n'apparaît pas (pkaction --action-id
 org.jotenakis.smartmount.manage), relancer polkit une fois :
     sudo systemctl restart polkit
 EOF
+    else
+        cat <<'EOF'
+smart-mount est installé ; /etc/smart-mount/config est conservé.
+
+Voir l'état des montages :
+        sudo nas-smartmount.sh show
+EOF
+    fi
 }
 
 post_upgrade() {

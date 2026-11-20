@@ -5,7 +5,7 @@
 # qu'un utilisateur verrait : résolution des dépendances, fichiers installés, sortie
 # du script de post-installation, binaire exécutable, désinstallation propre.
 #
-#   tests/deb-containers.sh dist/smart-mount_1.29.0-1_all.deb ubuntu:24.04
+#   tests/deb-containers.sh dist/smart-mount_1.29.1-1_all.deb ubuntu:24.04
 #
 set -euo pipefail
 
